@@ -1,0 +1,19 @@
+# Attachments and generated data — never committed (subject requirement)
+data/
+moulinette
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Virtual environment
+.venv/
+
+# Caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Qwen model weights downloaded by transformers
+.cache/
