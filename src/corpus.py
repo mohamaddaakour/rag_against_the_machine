@@ -27,7 +27,7 @@ def is_indexable(path: Path) -> bool:
     # return False
     if SKIP_DIRS.intersection(path.parts):
         return False
-    
+
     try:
         return path.stat().st_size <= MAX_FILE_BYTES
     except OSError:
@@ -56,7 +56,7 @@ def read_corpus_file(path: Path, repo_root: Path) -> Tuple[str, str]:
     # `as_posix()` makes sure the path used /
     relative = path.resolve().relative_to(repo_root.resolve()).as_posix()
 
-    # `errors="replace"` means if the file contains some invalid UTF-8 bytes, don't crash
-    # and resplace it with ?.
+    # `errors="replace"` means if the file contains some invalid UTF-8
+    # bytes, don't crash and replace it with ?.
     with path.open(encoding="utf-8", errors="replace", newline="") as handle:
         return relative, handle.read()

@@ -35,7 +35,7 @@ class MinimalSource(BaseModel):
             raise ValueError("first_character_index must be >= 0")
         if self.last_character_index < self.first_character_index:
             raise ValueError("last_character_index must be >= first")
-        
+
         return self
 
 

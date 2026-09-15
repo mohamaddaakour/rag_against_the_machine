@@ -34,7 +34,7 @@ def chunk_fixed(file_path: str, text: str, max_chunk_size: int) -> List[Chunk]:
                     text=piece,
                 )
             )
-        
+
         if end >= len(text):
             break
 

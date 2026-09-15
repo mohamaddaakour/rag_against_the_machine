@@ -1,181 +1,359 @@
-# RAG against the machine — Roadmap
+# 00 — Overview
 
-## Current repository assessment (10 September 2026)
+**Project:** RAG against the machine — *Will you answer my questions?* (subject v2.0)
+**Roadmap written:** 2026-09-14
+**Status:** Phase 1 is current and fully detailed. Phases 2–15 are planned and
+listed below; each is expanded into its own `PHASE-XX-*.md` only when you say
+you are ready for it.
 
-This is an **existing, partial repository**, not a greenfield project. The
-implementation currently consists of a Pydantic model module and a corpus-file
-walker; `src/__main__.py` and `src/__init__.py` are empty. `pyproject.toml`
-already uses the required `uv`, Python 3.10+, Pydantic, Fire, tqdm, and lexical
-retrieval dependencies. The Makefile has the required target names but its
-recipes are malformed, and `flake8` currently reports errors in `src/corpus.py`.
-`README.md` is empty. There are no tests, indexer, chunker, retriever, dataset
-I/O, evaluator, generator, or corpus/dataset attachment directories in this
-checkout.
+---
 
-Preserve and repair `src/models.py`, `src/corpus.py`, the existing dependency
-manifest, `.gitignore`, `setup.cfg`, and Makefile rather than replacing the
-repository wholesale. The roadmap adds the missing modules incrementally. The
-vLLM repository and the supplied question datasets must be unpacked into
-`data/` before Phase 1; their absence here is intentional and consistent with
-the subject's rule against committing large data or generated output.
+## 1. Objective
 
-**The spine:** Point it at `data/raw/`, ask a question, get back the exact file paths and character ranges that answer it — then let Qwen3-0.6B read those ranges and write the answer.
+Build a Retrieval-Augmented Generation system over the vLLM 0.10.1 source tree
+that:
 
-**Stack:** Python 3.10+ · `uv` (mandatory) · Python Fire CLI · pydantic v2 · tqdm · scikit-learn sparse matrices for TF-IDF and a hand-rolled BM25 · `transformers` + `Qwen/Qwen3-0.6B` on CPU · flake8 + mypy + Makefile.
+1. ingests `data/raw/` into a persisted, searchable index in under 5 minutes,
+2. returns, for any question, the top-k source locations (`file_path` +
+   character span, each ≤ 2000 characters wide) that contain the answer,
+3. generates a natural-language answer from those spans using
+   `Qwen/Qwen3-0.6B` running locally on CPU,
+4. reaches **≥ 80 % recall@5 on the docs dataset** and **≥ 50 % recall@5 on the
+   code dataset**, as measured by the reference moulinette,
+5. does all of the above behind a Python Fire CLI (`uv run python -m src
+   <command>`) that never crashes with an unhandled traceback.
 
-**Assumptions:**
-- The vLLM corpus, question datasets, and `moulinette` binary are supplied separately with the assignment. They are not present or tracked in this checkout. Phase 1 copies them into the required ignored `data/` layout. If a learner has previously committed those attachments, Phase 1 includes a conditional untracking check before proceeding.
-- You develop on **Windows**, but the moulinette ships as Linux ELF binaries only. Phase 2 gives you both routes: a faithful local re-implementation of the metric (`evaluate`), and WSL for the real grader. Every path written into JSON is a forward-slash POSIX path — that is a Phase-1 concern, not a polish item.
-- The five bonuses are out of scope for v1. Nothing here blocks adding them later.
+The project is graded primarily on retrieval quality, grounding, and prompt
+strategy — not on the eloquence of the 0.6B model's prose.
 
-## Phases
+---
 
-| # | Phase | What runs at the end | Est. | File |
-|---|-------|----------------------|------|------|
-| 1 | Search the corpus from the CLI | `uv run python -m src index` then `search "how do I use LoRA?" --k 5` prints 5 real `path [first-last]` hits | ~4h | [PHASE-01-search-the-corpus-from-the-cli.md](PHASE-01-search-the-corpus-from-the-cli.md) |
-| 2 | Measure your own recall | `search_dataset` writes valid JSON; `evaluate` prints `Recall@1/3/5/10` over 100 real questions | ~3h | [PHASE-02-measure-your-own-recall.md](PHASE-02-measure-your-own-recall.md) |
-| 3 | Beat the recall thresholds | Same commands, recall@5 ≥ 0.80 docs and ≥ 0.50 code — and you can say why | ~6h | [PHASE-03-beat-the-recall-thresholds.md](PHASE-03-beat-the-recall-thresholds.md) |
-| 4 | Answer in English with Qwen3-0.6B | `answer "how do I use LoRA?" --k 5` prints a grounded paragraph; `answer_dataset` does 100 of them | ~5h | [PHASE-04-answer-with-qwen.md](PHASE-04-answer-with-qwen.md) |
-| 5 | Survive a hostile reviewer | `make lint` clean; `k=0`, empty query, missing index, malformed JSON all handled; perf budgets met | ~4h | [PHASE-05-survive-a-hostile-reviewer.md](PHASE-05-survive-a-hostile-reviewer.md) |
-| 6 | Defense-ready from a fresh clone | `./scripts/run_pipeline.sh` goes clone → sync → index → search → score → answer, and the README explains every choice | ~3h | [PHASE-06-defense-ready.md](PHASE-06-defense-ready.md) |
+## 2. Repository assessment
 
-## Progress
+### 2.1 What is in the working directory today
 
-- [ ] Phase 1 — Search the corpus from the CLI
-- [ ] Phase 2 — Measure your own recall
-- [ ] Phase 3 — Beat the recall thresholds
-- [ ] Phase 4 — Answer in English with Qwen3-0.6B
-- [ ] Phase 5 — Survive a hostile reviewer
-- [ ] Phase 6 — Defense-ready from a fresh clone
+`C:\Users\user\Desktop\test` contains exactly one file: `subject.md`. There is
+no source code, no `pyproject.toml`, no data. **This is a new project.**
 
-## What the graded data actually looks like
+### 2.2 The git situation (important, and deliberately left alone)
 
-Measured from `datasets_public/`, not guessed. Several design decisions fall straight out of these numbers.
+`C:\Users\user\Desktop\test` is *not* its own git repository. Running
+`git rev-parse --show-toplevel` from it returns `C:/Users/user` — your entire
+Windows home directory is a git repository, with remote
+`https://github.com/mohamaddaakour/Modal-Window.git`, currently on branch
+`final-solution`. Its working tree shows hundreds of deletions across unrelated
+folders.
 
-| Fact | Value | Consequence |
+You chose to leave version control alone for now, so **this roadmap contains no
+git commands at all.** Each phase names a natural commit point; acting on it is
+your call. One thing to keep in mind for submission day: the subject requires
+`src/`, `pyproject.toml`, `uv.lock`, `Makefile` and `README.md` at the *root of
+the repository you submit*. The home-directory repo cannot satisfy that, so at
+some point before the defense the project folder will need to become its own
+repository. That is noted here as a known open item, not scheduled as a phase.
+
+### 2.3 Prior art found on this machine (inspected, not reused wholesale)
+
+`C:\Users\user\Desktop\my_projects\python\` holds several earlier attempts. The
+most advanced is `rag_against_the_machine`:
+
+| Component | State in the donor project |
+|---|---|
+| `src/models.py` | All required pydantic models plus `ScoredSource` and `Chunk`. Sound. |
+| `src/corpus.py` | Walks `data/raw`, filters by extension, returns grader-relative POSIX paths. Sound. |
+| `src/chunking.py` | **Fixed-size sliding window only.** The subject demands *two distinct* strategies (Python and Markdown). This is an unmet mandatory requirement there. |
+| `src/indexer.py` | TF-IDF via scikit-learn, persisted with joblib. Works; index is built (2 880 corpus files). |
+| `src/retriever.py` | Sparse cosine similarity, top-k via `argpartition`. Works. |
+| `src/__main__.py` | Only `index` and `search`. **Four of the six mandatory commands are missing.** |
+| Generation | **Entirely absent.** No `Qwen`, no `transformers`, no `answer`. |
+| `tests/` | Three real pytest files (chunking, indexer, models). |
+| Tooling | `Makefile`, `pyproject.toml`, `setup.cfg`, `uv.lock` — all usable as reference. |
+| `README.md` | Written, but describes a Phase-1-only system and still has an unfilled login placeholder. |
+
+**How this roadmap treats it:** as a *reference and as a data source*, never as
+a base to build on. You chose a fresh build in a new dedicated folder, so every
+line of code in this roadmap is written for you to type yourself. The donor
+project's `data/raw/vllm-0.10.1/`, `data/datasets/`, and `moulinette` are
+copied across in later phases so you do not re-download several hundred
+megabytes — that is file copying, not code reuse.
+
+### 2.4 Toolchain verified on this machine
+
+| Tool | Result |
+|---|---|
+| Python | 3.12.4 — satisfies `>=3.10` |
+| uv | 0.11.31 |
+| git | 2.47.1.windows.1 |
+| **make** | **not installed** — see risk R4 |
+| Free disk | 487 GB on C: — ample for torch + model weights |
+| WSL | present, but the only distro is `docker-desktop` — see risk R1 |
+
+### 2.5 Facts established by reading the actual datasets
+
+These drove several design decisions, so they are recorded here rather than
+rediscovered later:
+
+- `data/datasets/AnsweredQuestions/dataset_docs_public.json` — 100 questions.
+- `data/datasets/AnsweredQuestions/dataset_code_public.json` — 99 questions.
+- **Every question in both datasets has exactly one ground-truth source.**
+  Recall@k therefore reduces to a hit rate: for each question you either cover
+  its single span within your top-k or you do not.
+- Docs ground truth points only at `.md` (97) and `.txt` (3) files. Code ground
+  truth points only at `.py` files (99).
+- Ground-truth span widths range from 12 to 1578 characters, median ≈ 878.
+- The `Unanswered` and `Answered` files share question ids, so the unanswered
+  file is the input and the answered file is the key for the same questions.
+- The moulinette binary is `ELF 64-bit LSB executable, x86-64, GNU/Linux`.
+
+---
+
+## 3. Functional requirements (from the subject — non-negotiable)
+
+| # | Requirement |
+|---|---|
+| F1 | Runnable as `uv run python -m src <command>`; CLI built with **Python Fire**. |
+| F2 | Commands: `index`, `search`, `search_dataset`, `answer`, `answer_dataset`, `evaluate`. |
+| F3 | `index --max_chunk_size <int>` (default 2000) ingests `data/raw/` → `data/processed/`. |
+| F4 | **Two distinct chunking strategies**: one for Python code, one for Markdown/text. |
+| F5 | At least one of **TF-IDF** or **BM25** implemented as the retrieval method. |
+| F6 | No retrieved source may exceed 2000 characters. One over-long source invalidates the whole output file. |
+| F7 | `file_path` must match the corpus path **verbatim**, e.g. `data/raw/vllm-0.10.1/docs/features/lora.md`. |
+| F8 | Data exchanged between stages validated with **pydantic** models exactly as specified in §VI.4. |
+| F9 | Output files conform to `StudentSearchResults` / `StudentSearchResultsAndAnswer`. |
+| F10 | Answers generated locally by `Qwen/Qwen3-0.6B`, grounded in the retrieved spans. |
+| F11 | Exact directory layout: `src/`, `data/raw/`, `data/processed/`, `data/datasets/{Unanswered,Answered}Questions/`, `data/output/search_results/<Scope>/`, `data/output/search_results_and_answer/<Scope>/`. |
+| F12 | All input/output paths are CLI arguments — **never hard-coded**. |
+| F13 | `tqdm` progress bars on long-running operations. |
+| F14 | Degenerate input (empty query, nonsense query, `k=0`, missing file, malformed JSON) handled gracefully — **never an unhandled traceback**. |
+| F15 | `Makefile` with `install`, `run`, `debug`, `clean`, `lint`. |
+| F16 | `README.md` with the subject's mandated sections, in English, first line italicised. |
+| F17 | The solution must never import or call the moulinette. |
+
+## 4. Non-functional requirements
+
+| # | Requirement | Source |
 |---|---|---|
-| Questions per dataset | 100 docs, 99 code | 200 questions is the perf budget worst case |
-| Ground-truth sources per question | **exactly 1**, in both datasets | Recall@k is simply "did any of my top-k overlap the one true span" |
-| Truth file types | 99 `.py` (all under `vllm/`), 97 `.md` (mostly `docs/`), 3 `.txt` (`CMakeLists.txt`) | Never skip `.txt`; `.json` and `.yaml` never appear as truth |
-| Truth span width — docs | p10 187 · median 1155 · p75 1744 · max 1997 | Docs answers are whole sections |
-| Truth span width — code | p10 440 · median 878 · p75 1001 · max 1578 | Code answers are sub-function-sized, and **not** aligned to `def` boundaries |
-| Encoding | plain UTF-8, LF newlines, character (not byte) offsets | Read with `newline=""` so nothing is translated |
-| Overlap rule | IoU ≥ 0.05 against the truth span | Best possible IoU for a chunk of width `C` over a truth of width `W` is `min(W,C)/max(W,C)` |
+| N1 | Indexing the whole corpus ≤ 5 minutes. | §VII.1.2 |
+| N2 | Retrieval ≤ 90 seconds for 200 questions. | §VII.1.2 |
+| N3 | Recall@5 ≥ 80 % docs, ≥ 50 % code. | §VII.1.2 |
+| N4 | `flake8 .` clean. | §V.1 |
+| N5 | `mypy .` clean with the five mandated flags. | §V.1 |
+| N6 | Type hints on all functions; PEP 257 docstrings. | §V.1 |
+| N7 | Context managers for every file handle. | §V.1 |
+| N8 | `uv` is the package manager; `uv sync` must work from the repo root. | §V.4 |
+| N9 | Runs CPU-only on a campus machine. | §IX |
 
-That last row is the one people miss. At `--max_chunk_size 2000` the *best case you can possibly reach* is 0.96 on docs and 0.98 on code, because a very short truth span can never make 5 % IoU against a 2000-character chunk. At 900 it is 0.99 / 0.99. Chunk size is not a taste question; it is a ceiling.
+---
 
-Verified by hand: `docs/features/lora.md[4695:6098]` starts exactly on a `### Using API Endpoints` line. The reference chunker is heading-aware for Markdown. Phase 3 exploits that.
+## 5. Requirements vs. assumptions vs. my implementation decisions
 
-## Where files end up
+### 5.1 Hard requirements
+Everything in §3 and §4 above. None of it is negotiable and none of it is my
+choice.
 
-```
-rag_against_the_machine/
-├── pyproject.toml            # phase 1 · torch + transformers added in phase 4
-├── uv.lock                   # phase 1 (generated by uv, committed)
-├── Makefile                  # phase 1 (repaired — it is broken today) · phase 6 adds `pipeline`
-├── setup.cfg                 # phase 1 — flake8 + mypy config, excludes data/
-├── README.md                 # phase 6
-├── benchmarks.md             # phase 2 — one row per experiment · filled in 3 and 5
-├── .gitignore                # already present
-├── scripts/
-│   └── run_pipeline.sh       # phase 6
-├── src/
-│   ├── __init__.py           # already present
-│   ├── __main__.py           # phase 1 — Fire CLI; gains commands in 2 and 4
-│   ├── models.py             # phase 1 (repaired — it has a crashing typo today)
-│   ├── corpus.py             # phase 1 — file walk + grader-exact paths
-│   ├── chunking.py           # phase 1 — fixed-size · phase 3 — python + markdown
-│   ├── indexer.py            # phase 1 — TF-IDF · phase 3 — BM25 alongside
-│   ├── retriever.py          # phase 1 — TF-IDF search · phase 3 — --retriever switch
-│   ├── analyzer.py           # phase 3 — identifier-aware tokenizer
-│   ├── bm25.py               # phase 3 — BM25 weighting over a sparse count matrix
-│   ├── datasets.py           # phase 2 — dataset I/O · phase 4 adds save_answers
-│   ├── evaluation.py         # phase 2 — recall@k, faithful to the moulinette
-│   └── generator.py          # phase 4 — Qwen3-0.6B answering
-├── tests/
-│   ├── test_chunking.py      # phase 1 · extended in phase 3
-│   ├── test_models.py        # phase 1
-│   ├── test_datasets.py      # phase 2
-│   ├── test_evaluation.py    # phase 2
-│   ├── test_generator.py     # phase 4
-│   └── test_cli.py           # phase 5
-├── moulinette                # phase 1 — copied from moulinette/, never committed
-└── data/                     # never committed (.gitignore already covers it)
-    ├── raw/vllm-0.10.1/                             # phase 1 — moved from ./vllm-0.10.1
-    ├── processed/                                   # phase 1 — index artefacts
-    ├── datasets/AnsweredQuestions/*.json            # phase 1 — ground truth
-    ├── datasets/UnansweredQuestions/*.json          # phase 1 — questions only
-    └── output/
-        ├── search_results/<Scope>/*.json            # phase 2
-        └── search_results_and_answer/<Scope>/*.json # phase 4
-```
+### 5.2 Assumptions I am proceeding under (correct me and I will revise)
 
-## Vocabulary
-
-Fixed names. Every phase uses exactly these — check here before writing a call.
-
-| Thing | Signature | Introduced |
+| # | Assumption | Consequence if wrong |
 |---|---|---|
-| `models.MinimalSource` | `MinimalSource(file_path: str, first_character_index: int, last_character_index: int)` | Phase 1 |
-| `models.ScoredSource` | `ScoredSource(MinimalSource, score: float = 0.0)` — internal only, never serialized | Phase 1 |
-| `models.Chunk` | `Chunk(file_path, first_character_index, last_character_index, text, indexed_text=None)` | Phase 1 |
-| `Chunk.search_text` | property `-> str` — `indexed_text` if set, else `text` | Phase 1 |
-| `Chunk.to_source` | `to_source() -> MinimalSource` | Phase 1 |
-| `corpus.list_corpus_files` | `list_corpus_files(raw_dir: Path) -> list[Path]` | Phase 1 |
-| `corpus.read_corpus_file` | `read_corpus_file(path: Path, repo_root: Path) -> tuple[str, str]` — `(posix_relative_path, text)` | Phase 1 |
-| `chunking.chunk_fixed` | `chunk_fixed(file_path: str, text: str, max_chunk_size: int) -> list[Chunk]` | Phase 1 |
-| `chunking.chunk_file` | `chunk_file(file_path: str, text: str, max_chunk_size: int) -> list[Chunk]` — the dispatcher | Phase 1 |
-| `chunking.chunk_python` | same signature as `chunk_fixed` | Phase 3 |
-| `chunking.chunk_markdown` | same signature as `chunk_fixed` | Phase 3 |
-| `analyzer.analyze` | `analyze(text: str) -> list[str]` | Phase 3 |
-| `bm25.bm25_weights` | `bm25_weights(counts: csr_matrix, k1: float = 1.2, b: float = 0.75) -> csc_matrix` | Phase 3 |
-| `bm25.bm25_scores` | `bm25_scores(weights: csc_matrix, term_ids: Sequence[int]) -> np.ndarray` | Phase 3 |
-| `indexer.Indexer` | `Indexer(max_chunk_size: int = 2000)` · `.build(raw_dir: Path, repo_root: Path) -> None` · `.save(processed_dir: Path) -> None` — the default becomes whatever Phase 3 measures best | Phase 1 |
-| `retriever.Retriever.load` | `load(processed_dir: Path) -> Retriever` — gains `retriever: str = "bm25"` in Phase 3 | Phase 1 |
-| `retriever.Retriever.search` | `search(query: str, k: int = 10) -> list[ScoredSource]` | Phase 1 |
-| `datasets.load_dataset` | `load_dataset(dataset_path: Path) -> RagDataset` | Phase 2 |
-| `datasets.load_questions` | `load_questions(dataset_path: Path) -> list[UnansweredQuestion]` | Phase 2 |
-| `datasets.to_minimal` | `to_minimal(source: MinimalSource) -> MinimalSource` — strips the score | Phase 2 |
-| `datasets.save_search_results` | `save_search_results(results: StudentSearchResults, save_directory: Path, dataset_path: Path) -> Path` | Phase 2 |
-| `datasets.load_search_results` | `load_search_results(path: Path) -> StudentSearchResults` | Phase 2 |
-| `datasets.save_answers` | `save_answers(results: StudentSearchResultsAndAnswer, save_directory: Path, source_path: Path) -> Path` | Phase 4 |
-| `evaluation.span_iou` | `span_iou(a: MinimalSource, b: MinimalSource) -> float` | Phase 2 |
-| `evaluation.truth_by_id` | `truth_by_id(dataset_path: Path) -> dict[str, list[MinimalSource]]` | Phase 2 |
-| `evaluation.recall_at_k` | `recall_at_k(results: StudentSearchResults, truth: dict[str, list[MinimalSource]], k: int) -> float` | Phase 2 |
-| `evaluation.recall_report` | `recall_report(results, truth, ks=(1, 3, 5, 10)) -> dict[int, float]` | Phase 2 |
-| `generator.read_source` | `read_source(source: MinimalSource, repo_root: Path) -> str` | Phase 4 |
-| `generator.build_prompt` | `build_prompt(question: str, sources: list[MinimalSource], repo_root: Path) -> str` | Phase 4 |
-| `generator.strip_thinking` | `strip_thinking(text: str) -> str` | Phase 4 |
-| `generator.Generator` | `Generator(model_name: str = "Qwen/Qwen3-0.6B")` · `.answer(question: str, sources: list[MinimalSource]) -> str` | Phase 4 |
-| `__main__.Cli` | `index` · `search` (P1) · `search_dataset` · `evaluate` (P2) · `answer` · `answer_dataset` (P4) | Phase 1+ |
+| A1 | The project root is `C:\Users\user\Desktop\my_projects\python\rag_final`. You said "new dedicated folder" without naming it; I picked a short, unambiguous name. | Cosmetic — change the path in Phase 1 step 1 and every later command follows. |
+| A2 | The vLLM corpus, both datasets, and the moulinette may be copied from `rag_against_the_machine` rather than re-downloaded. Verified present and complete. | You would need the original attachment archive. |
+| A3 | The public datasets you have are representative of the private ones used at the defense. | Tuning to the public sets could overfit; §6 risk R3 covers this. |
+| A4 | You will run the defense pipeline on a Linux campus machine, where the moulinette runs natively. | Locally you rely on our `evaluate`; see R1. |
+| A5 | PowerShell is your primary shell. Commands are given in PowerShell form. | Bash equivalents differ only in `mkdir`/path syntax. |
+| A6 | Solo project — README credits one login. | Add logins to the first line. |
 
-## Not in v1
+### 5.3 My implementation decisions (not required by the subject)
 
-The five bonuses, parked deliberately — the subject grades them only once the mandatory part validates *in full*, so they come after Phase 6, never instead of it:
+These are choices I am making so later phases stay coherent. Each is revisited
+only with a stated reason.
 
-- Semantic embedding index (`all-MiniLM-L6-v2`)
-- Hybrid lexical + semantic fusion
-- Incremental re-indexing on file change
-- Index / query-result caching
-- Local HTTP API
+| # | Decision | Why |
+|---|---|---|
+| D1 | **scikit-learn `TfidfVectorizer`** for the lexical index, rather than hand-rolled TF-IDF. | F5 requires the *method*, not a from-scratch implementation. Sparse matrix multiply gives us N2 (90 s / 200 questions) essentially for free. |
+| D2 | Chunks store only `file_path` + span on disk; **chunk text is re-read from the corpus by offset** when generation needs it. | Keeps `data/processed/` small and makes the offset invariant the single source of truth. |
+| D3 | **Build the plain fixed-window chunker first (Phase 4), then replace it with the two structure-aware strategies (Phase 9).** | Gives a measurable recall baseline in Phase 8, so Phase 9's structural chunking can be justified by a number instead of by faith. F4 is still satisfied, just at Phase 9 rather than Phase 4. |
+| D4 | **BM25 is a conditional phase (11).** | If TF-IDF plus structural chunking plus identifier-aware tokenisation already clears 80 %/50 %, BM25 is complexity with no pressure behind it. F5 is satisfied by TF-IDF alone. |
+| D5 | Our own `evaluate` implements the subject's IoU ≥ 0.05 same-file overlap rule. | R1 — the moulinette will not run on your machine. This is the metric you iterate against. |
+| D6 | Generation runs at temperature 0 / greedy. | Reproducible answers; the subject grades grounding, not creativity. |
+| D7 | Corpus file filter is extension-based and deliberately narrow (`.py`, `.md`, `.txt`, `.rst`). | §2.5 shows ground truth lives only in `.py`, `.md` and `.txt`. Every other extension is index noise that costs N1 and dilutes IDF. |
+| D8 | A `status` command beyond the six mandatory ones. | §VI.6 explicitly permits extra options/commands, and F11's layout is easier to verify than to remember. |
 
-Also out: LLM query rewriting, cross-encoder re-ranking, anything that needs a GPU.
+---
 
-## Tech debt ledger
+## 6. Major risks and trade-offs
 
-| Taken in | Shortcut | Bites you when | Paid off in |
+**R1 — The moulinette cannot run on this machine.** It is a Linux ELF binary;
+Windows cannot execute it, and your only WSL distro is `docker-desktop`, which
+is not a general-purpose environment. *Mitigation:* Phase 8 builds our own
+`evaluate` against the subject's stated rule (same file, IoU ≥ 0.05), and it is
+the number every later phase iterates against. *Residual risk:* our
+interpretation of the rule could differ from the moulinette's. Before the
+defense, run the official binary once on a Linux box (campus machine, a real
+WSL Ubuntu distro, or a container) and confirm the two numbers agree. Until
+that is done, treat our recall as a strong indicator, not as the verdict.
+
+**R2 — The 50 % code-recall threshold is the hard one.** Docs questions
+paraphrase prose that shares vocabulary with the prose being searched; code
+questions ("What activation formats does the fused batched MoE layer return?")
+must match an identifier buried in a `.py` file. Plain TF-IDF over raw source
+text tends to land near the threshold, not comfortably above it. This is why
+Phases 9 and 10 exist and why Phase 11 is held in reserve.
+
+**R3 — Overfitting to the public datasets.** The defense uses private ones.
+*Mitigation:* prefer changes that are principled (chunk on real structural
+boundaries; make identifiers tokenisable) over changes that are empirical
+(tuning a magic constant until the public number moves). Phase 10 states this
+explicitly.
+
+**R4 — `make` is not installed.** The `Makefile` is mandatory for submission
+(F15) and will be written in Phase 1, but you cannot execute it locally.
+*Mitigation:* every phase gives the raw `uv run ...` command as the primary
+instruction, with the `make` target named alongside. Installing GNU Make on
+Windows is optional and is not scheduled as work.
+
+**R5 — The deep-learning stack is large.** `torch` + `transformers` + the
+Qwen3-0.6B weights total roughly 2–3 GB. *Mitigation:* they are not installed
+until Phase 12, so Phases 1–11 stay fast to set up and fast to lint. Disk is
+not a constraint (487 GB free).
+
+**R6 — The 2000-character ceiling is a validity cliff, not a quality knob.** A
+single returned source wider than 2000 characters invalidates the entire output
+file (F6). *Mitigation:* the width invariant is asserted in a unit test from
+Phase 4 onward and re-checked in Phase 14, so it can never regress silently.
+
+**R7 — Windows path separators.** `Path` yields backslashes on Windows;
+ground-truth comparison is verbatim against forward-slash paths (F7). A single
+`\` anywhere in a `file_path` scores zero on every question. *Mitigation:* one
+function owns path normalisation (Phase 3), and a test pins it.
+
+---
+
+## 7. Final technology stack
+
+| Layer | Choice | Version constraint | Introduced in |
 |---|---|---|---|
-| Phase 1 | One fixed-size character chunker for every file type | Code recall sits near the floor; identifiers get cut in half at chunk boundaries | Phase 3 |
-| Phase 1 | TF-IDF with the default word tokenizer | `get_model_config` and `AsyncLLMEngine` never match a paraphrased question | Phase 3 |
-| Phase 1 | Index persisted with `joblib` (pickle underneath) | A scikit-learn upgrade makes an old `data/processed/` unloadable | Not planned — `index` rebuilds in under 5 min; documented in the README |
-| Phase 1 | The whole chunk list is held in RAM during `build()` | The corpus grows past a few hundred MB of text | Not planned — 21 MB of text today |
-| Phase 2 | `evaluate` re-implements the grader metric instead of calling it | You tune against your number and the moulinette disagrees at defense | Not planned — mitigated by re-running the real moulinette at every Phase 3 checkpoint |
-| Phase 3 | BM25 parameters and chunk size tuned against the *public* datasets | The defense dataset is drawn differently and a 1-point margin evaporates | Not planned — mitigated by coarse tuning and aiming for a wide margin |
-| Phase 4 | Answers generated one at a time, no batching, no cache | `answer_dataset` over 100 questions takes 25–45 min on CPU | Not planned — `--limit` covers the dev loop; caching is bonus #4 |
-| Phase 4 | Context assembled by character budget, not by counting tokens | A source full of dense punctuation or CJK overruns the model window | Mitigated in Phase 4 step 5 with `truncation=True`; a real token budget is not planned |
+| Language | Python | `>=3.10` (3.12.4 local) | Phase 1 |
+| Project/package manager | uv | 0.11.31 | Phase 1 |
+| CLI | `fire` | `>=0.6` | Phase 1 |
+| Validation | `pydantic` | `>=2.7` | Phase 2 |
+| Progress bars | `tqdm` | `>=4.66` | Phase 4 |
+| Vectorisation | `scikit-learn` | `>=1.4` | Phase 5 |
+| Numerics | `numpy`, `scipy` | `>=1.26`, `>=1.11` | Phase 5 |
+| Index persistence | `joblib` | `>=1.3` | Phase 5 |
+| Generation | `transformers` | `>=4.51` (Qwen3 support) | Phase 12 |
+| Tensor runtime | `torch` (CPU wheel) | `>=2.2` | Phase 12 |
+| Tests | `pytest` | `>=8.0` | Phase 1 |
+| Lint | `flake8` | `>=7.0` | Phase 1 |
+| Types | `mypy` | `>=1.10` | Phase 1 |
 
-## How to use this roadmap
+Nothing is added to `pyproject.toml` before the phase that actually uses it.
 
-Open one phase file. Work top to bottom — the steps are ordered so nothing gets built twice. Run every `**Check:**` as you go; they take seconds and catch a mistake one step after you make it instead of at the end. Run the "Verify it's done" block, tick the definition of done, commit, then open the next phase. Do not read ahead: each phase assumes the previous one is finished.
+---
 
-The single most expensive mistake in this project is a `file_path` the grader does not recognise. Phase 1, step 3 is where that is won or lost.
+## 8. Architecture preview (the finished system, one screen)
+
+```
+                       uv run python -m src <command>
+                                   │
+                          ┌────────▼────────┐
+                          │  src/__main__   │   Fire CLI, error boundary
+                          └────────┬────────┘
+        ┌──────────────┬───────────┼────────────┬───────────────┐
+        │              │           │            │               │
+     index          search   search_dataset   answer      answer_dataset
+        │              │           │            │               │        evaluate
+        ▼              ▼           ▼            ▼               ▼           │
+┌───────────────┐  ┌──────────────────────┐  ┌──────────────────────┐       │
+│  src/corpus   │  │   src/retriever      │  │   src/generator      │       │
+│  walk + read  │  │  load index, rank    │  │  Qwen3-0.6B, greedy  │       │
+│  exact paths  │  │  top-k, cosine       │  │  prompt = spans      │       │
+└───────┬───────┘  └──────────┬───────────┘  └──────────┬───────────┘       │
+        │                     │                         │                   │
+        ▼                     │                    re-reads spans           │
+┌───────────────┐             │                    from data/raw            │
+│ src/chunking  │             │                    by offset (D2)           │
+│  .py → AST    │             │                                             │
+│  .md → heads  │             │                                             │
+│  offsets kept │             │                                             │
+└───────┬───────┘             │                                             │
+        ▼                     │                                             │
+┌───────────────┐             │                                   ┌─────────▼────────┐
+│  src/indexer  │             │                                   │   src/evaluate   │
+│  TF-IDF fit   │             │                                   │  recall@k, IoU   │
+└───────┬───────┘             │                                   └─────────▲────────┘
+        ▼                     │                                             │
+  data/processed/ ────────────┘                                             │
+   chunks.jsonl                                                             │
+   tfidf.joblib          ┌──────────────────────────────┐                   │
+   meta.json             │  src/models.py  (pydantic)   │                   │
+                         │  the contract every stage    │───────────────────┘
+                         │  reads and writes            │
+                         └──────────────────────────────┘
+                                      │
+   data/output/search_results/<Scope>/*.json           (StudentSearchResults)
+   data/output/search_results_and_answer/<Scope>/*.json (StudentSearchResultsAndAnswer)
+```
+
+Single process, modular monolith, no services, no database, no container. The
+pressure that would justify any of those is absent: one user, one machine, a
+read-only corpus, and a batch workload.
+
+---
+
+## 9. Phase table
+
+Estimates assume focused work and exclude one-off downloads.
+
+| # | Phase | Goal | New concepts (1–2) | Runnable result | Problem it solves | Est. | Status |
+|---|---|---|---|---|---|---|---|
+| 1 | Runnable skeleton | A lint-clean uv project that answers a real command | uv as project manager; Python Fire turning a class into a CLI | `uv run python -m src status` prints the mandatory layout and which parts exist | Nothing runs yet; F1/F11/F15/N4/N5/N8 need a floor to stand on | 45–60 min | **Current — see `PHASE-01-runnable-skeleton.md`** |
+| 2 | The data contract | Parse the real dataset files into validated objects | pydantic v2 `BaseModel`; parsing a union of answered/unanswered questions | `check_dataset --dataset_path <p>` reports counts and rejects malformed JSON | Every later stage exchanges these structures (F8); getting the contract wrong late is expensive rework | 45–60 min | Pending |
+| 3 | Corpus ingestion | Walk `data/raw/` and produce grader-exact paths | `pathlib.rglob` traversal with an extension allowlist; relative-POSIX path normalisation (R7/F7) | `corpus_stats` prints file count, total characters, per-extension breakdown | A single backslash or wrong prefix in `file_path` scores zero on every question | 45–60 min | Pending |
+| 4 | Chunking with exact offsets | Cut files into ≤2000-char pieces that know where they came from | The offset invariant `text[first:last] == chunk.text`; overlapping windows | `chunk_stats` prints chunk count and max width; a test proves the invariant on real corpus files | Retrieval returns spans, not text — if offsets drift, every result is wrong in a way that is invisible until scoring (F6) | 60–75 min | Pending |
+| 5 | Build and persist the index | Turn chunks into a searchable TF-IDF matrix on disk | TF-IDF vectorisation; persisting a fitted vectoriser + sparse matrix with joblib | `index --max_chunk_size 2000` completes in under 5 minutes and writes `data/processed/` | Re-chunking 2 880 files per query is impossible; F3 and N1 demand a persisted index | 60–75 min | Pending |
+| 6 | Single-query retrieval | Rank the index against one question | Cosine similarity as a sparse dot product; top-k via `argpartition` | `search "How do I load a LoRA adapter?" --k 5` prints ranked file spans | The index is inert until something queries it; this is the first observable answer to a real question | 45–60 min | **Done (2026-09-15)** |
+| 7 | Batch search over a dataset | Produce the file the grader actually reads | Batch vectorisation (one `transform` for all queries, for N2); writing the `StudentSearchResults` contract | `search_dataset` writes valid JSON under `data/output/search_results/<Scope>/` | F2/F9/F11 — the defense pipeline runs this command, not `search` | 45–60 min | **Current — see `PHASE-07-batch-search-over-a-dataset.md`** |
+| 8 | Measure your own recall | Know your number without the moulinette | The IoU ≥ 0.05 same-file overlap rule; recall@k | `evaluate` prints recall@1/3/5/10 for docs and code — **the baseline every later phase is judged against** | R1: the official binary will not run here, and tuning without a metric is guessing | 60–75 min | Pending |
+| 9 | Chunk by structure | Stop cutting chunks mid-function and mid-section | Python chunking on `ast` `def`/`class` boundaries; Markdown chunking on heading boundaries — **the two strategies F4 requires** | Re-index, re-`evaluate`, observe the recall delta against Phase 8 | A fixed window splits the answer across two chunks so neither ranks; also the last unmet mandatory requirement from the donor project | 75–90 min | Pending |
+| 10 | Make identifiers matchable | Close the gap on code questions | A custom analyzer that splits `snake_case`/`camelCase`; enriching indexed text with path tokens | `evaluate` shows code recall@5 moving toward and past 50 % | R2 — `fused_batched_moe` is one opaque token to the default analyzer, so a question saying "fused batched MoE" cannot match it | 60–75 min | Pending |
+| 11 | BM25 ranking *(conditional)* | Reach the thresholds if Phases 9–10 did not | Okapi BM25 scoring and how its length normalisation differs from TF-IDF cosine | `--method bm25` flag; `evaluate` compares both rankings | Only run if N3 is still unmet after Phase 10. If the bar is already cleared, this becomes README future-work (D4) | 60–90 min | Pending (conditional) |
+| 12 | Answer one question with Qwen | The first grounded natural-language answer | Loading a local causal LM with `transformers`; building a prompt inside a token budget from spans re-read off disk (D2) | `answer "..." --k 5` prints a grounded answer | Phases 1–11 only ever return spans; F10 requires prose | 60–90 min + one-off ~1.5 GB download | Pending |
+| 13 | Answer a whole dataset | Batch generation over every question | No new concept — the same single→batch step as 6→7, over a `tqdm` loop | `answer_dataset` writes `StudentSearchResultsAndAnswer` under the scoped output dir | F2/F9/F11 — step 4 of the subject's end-to-end walkthrough | 45–60 min | Pending |
+| 14 | Harden every entry point | Survive a reviewer trying to break it | A single CLI-level error boundary; systematic degenerate-input tests | Empty query, `k=0`, `k=-1`, missing file, malformed JSON, unbuilt index — each prints a clear message, exit code sane, no traceback | F14 is explicitly tested at the defense, and "it crashed" is graded as non-functional (§V.1) | 60–75 min | Pending |
+| 15 | README, full pipeline, validation | Ship it | No new concept — documentation and an end-to-end rehearsal | The subject's four-command walkthrough runs start to finish; `README.md` carries all mandated sections | F16, and R1's open item: confirm our recall against the real moulinette on Linux | 75–90 min | Pending |
+
+**Bonuses (semantic embeddings, hybrid retrieval, incremental indexing,
+caching, local HTTP API) are out of scope** by your decision. They are graded
+only once the mandatory part validates in full (§IX), so they would slot in
+after Phase 15. Say the word and I will plan them then.
+
+### Phase dependency chain
+
+```
+1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 ─┬→ 9 → 10 →(11 if needed)→ 12 → 13 → 14 → 15
+                               └── 8 is the measurement gate: 9, 10 and 11 are
+                                   each justified by the number it produces
+```
+
+Phases 1–8 are a straight line — each genuinely needs its predecessor. Phase 8
+is the hinge: it turns the rest of the retrieval work from opinion into
+measurement.
+
+---
+
+## 10. What I will and will not do
+
+I inspect, analyse, architect, explain, plan, document, review your code when
+you show it to me, and hand you exact code to type. **You implement.** I will
+not create, modify or delete any source, configuration or data file in your
+project, and I will not run anything that changes it. The only files I write
+are these roadmap documents.
+
+## 11. Open items
+
+- **OI-1** — The project folder must become its own git repository before
+  submission (§2.2). Not scheduled; raise it when you want it.
+- **OI-2** — Validate our `evaluate` against the real moulinette on a Linux
+  environment (R1). Scheduled as part of Phase 15, but do it sooner if you get
+  access to a campus machine.
+- **OI-3** — The README's first line needs your 42 login (A6).
