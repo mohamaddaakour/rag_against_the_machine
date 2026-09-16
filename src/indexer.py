@@ -13,6 +13,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 # For progress bar.
 from tqdm import tqdm
 
+from src.analysis import analyze, path_tokens
 from src.chunking import chunk_file
 from src.corpus import list_corpus_files, read_corpus_file
 from src.models import Chunk
@@ -47,7 +48,14 @@ class Indexer:
                 tqdm.write(f"skipped {path}: {exc}")
                 continue
 
-            self.chunks.extend(chunk_file(file_path, text, self.max_chunk_size))
+            for chunk in chunk_file(file_path, text, self.max_chunk_size):
+                # Index the path's words alongside the body: a question often
+                # names the module ("the triton flash attention module") with
+                # a word that appears only in the path.
+                chunk.indexed_text = (
+                    path_tokens(file_path) + "\n" + chunk.text
+                )
+                self.chunks.append(chunk)
 
     def save(self, processed_dir: Path) -> None:
         """Write chunk metadata, the fitted vectorizer and the matrix.
@@ -71,8 +79,11 @@ class Indexer:
 
         print(f"Vectorizing {len(self.chunks)} chunks ...")
 
-        # create the object that converts text into vectors.
-        vectorizer: TfidfVectorizer = TfidfVectorizer(sublinear_tf=True)
+        # create the object that converts text into vectors, using our
+        # identifier-aware analyzer for both chunks and queries.
+        vectorizer: TfidfVectorizer = TfidfVectorizer(
+            sublinear_tf=True, analyzer=analyze
+        )
 
         matrix = vectorizer.fit_transform(c.search_text for c in self.chunks)
 

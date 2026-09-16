@@ -49,8 +49,7 @@ def list_corpus_files(raw_dir: Path) -> List[Path]:
 
 
 def read_corpus_file(path: Path, repo_root: Path) -> Tuple[str, str]:
-    """Decode `path` and return `(relative_posix_path, text)`.
-    """
+    """Decode `path` and return `(relative_posix_path, text)`."""
     # `resolve()` gets the absolute path
     # `relative_to()` makes the path relative to this directory
     # `as_posix()` makes sure the path used /

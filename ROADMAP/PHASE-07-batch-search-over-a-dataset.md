@@ -46,8 +46,14 @@ answered dataset, so without this file there is nothing to measure.
 
 Baseline on 2026-09-15: `flake8` clean, `mypy` clean on 12 files, **25 passed**.
 
-(Missing index still prints a raw `FileNotFoundError` traceback. That is known,
-and it belongs to Phase 14. Leave it for now.)
+3. A missing index no longer prints a traceback. `main()` in `src/__main__.py`
+   catches `FileNotFoundError` and `ValueError`, prints `error: <message>` to
+   stderr, and exits with code 1. That covers `search_dataset` too: a missing
+   `--dataset_path` gets the same one-line error. Malformed JSON is caught
+   too: `pydantic.ValidationError` is a subclass of `ValueError` (checked with
+   pydantic 2.13.5), though its multi-line message is not tidy. Errors that
+   are neither type (for example a corrupt `tfidf.joblib`) still print a
+   traceback; Phase 14 finishes the error handling.
 
 ---
 
@@ -134,7 +140,7 @@ strict reader. Keep scores for the terminal output of `search`.
 | Concept | Deferred to | Why not now |
 |---|---|---|
 | Measuring recall against `AnsweredQuestions` | Phase 8 | You need the file from this phase first. |
-| Clean messages for a missing dataset, malformed JSON, `k=0`, a missing index | Phase 14 | Phase 14 adds one error boundary for all commands. Here you only avoid making it worse. |
+| Tidy messages for every remaining bad input | Phase 14 | `main()` already turns `FileNotFoundError` and `ValueError` (which includes pydantic's `ValidationError`) into a one-line error. Phase 14 covers the rest and tidies the messages. Here you only avoid making it worse. |
 | Changing chunking or tokenisation to improve ranking | Phases 9–10 | Phase 8 must record a baseline first. |
 
 ---

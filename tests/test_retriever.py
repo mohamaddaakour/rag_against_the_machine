@@ -61,3 +61,31 @@ def test_search_degenerate_inputs_return_empty(retriever: Retriever) -> None:
     assert retriever.search("lora", k=0) == []
     assert retriever.search("lora", k=-1) == []
     assert retriever.search("zzzzunknownzzzz", k=5) == []
+
+
+def test_search_many_matches_search_one_by_one(retriever: Retriever) -> None:
+    queries = ["lora adapters", "fp8 quantization", "openai server port"]
+    batched = retriever.search_many(queries, k=3)
+    assert batched == [retriever.search(q, k=3) for q in queries]
+
+
+def test_search_many_keeps_order_and_length_with_empty_queries(
+    retriever: Retriever,
+) -> None:
+    queries = ["", "lora adapters", "zzzzunknownzzzz", "fp8 quantization"]
+    batched = retriever.search_many(queries, k=3)
+    assert len(batched) == 4
+    assert batched[0] == [] and batched[2] == []
+    assert batched[1][0].file_path == "data/raw/lora.md"
+    assert batched[3][0].file_path == "data/raw/quant.md"
+
+
+def test_search_many_crosses_a_batch_boundary(
+    retriever: Retriever, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("src.retriever.BATCH_SIZE", 2)
+    queries = ["lora adapters", "fp8 quantization", "openai server port"] * 3
+    batched = retriever.search_many(queries, k=1)
+    assert [r[0].file_path for r in batched] == [
+        "data/raw/lora.md", "data/raw/quant.md", "data/raw/server.py"
+    ] * 3
