@@ -41,6 +41,7 @@ def list_corpus_files(raw_dir: Path) -> List[Path]:
 
     indexable = []
 
+    # `rglob("*")` will go to the files in subdirectories.
     for p in raw_dir.rglob("*"):
         if p.is_file() and is_indexable(p):
             indexable.append(p)

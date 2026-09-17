@@ -64,3 +64,7 @@ search: retriever.py loads data/processed/ -> vectorizer.transform(query) -> mat
 - Long operations show `tqdm` progress bars. Retrieval budget: ≤ 90 s for 200 questions; indexing ≤ 5 min.
 - The solution must never import or call the moulinette.
 - `data/` and `moulinette` are git-ignored; the evaluator rebuilds the index. `pytest` is restricted to `tests/` (`testpaths`) because `data/raw` contains vLLM's own test suite.
+
+## Rules
+
+- Don't use git commands ever.

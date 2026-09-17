@@ -1,28 +1,26 @@
-"""Tokenisation shared by the index and every query.
-
-The default scikit-learn analyzer keeps ``fused_batched_moe`` as one opaque
-token, so a question phrased "fused batched MoE" cannot match it. This
-analyzer emits the whole identifier *and* its parts, so both spellings hit.
-"""
+"""Tokenisation shared by the index and every query."""
 
 import re
 from typing import Iterator, List
 
-# A word, an identifier, or a number. Underscores hold identifiers together.
+# This defines the pattern for finding tokens.
 TOKEN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+")
 
-# The lower/upper boundary inside camelCase and PascalCase names.
+# Handle camelCase and PascalCase names and split the word.
+# example: getName should be(get, Name)
 CAMEL = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 
 # Characters that separate the parts of a path.
 PATH_SEPARATORS = re.compile(r"[/\.\-_]+")
 
+# Very short tokens are ignored.
 MIN_TOKEN_LENGTH = 2
 
 
 def split_identifier(token: str) -> List[str]:
     """Parts of `token`, split on underscores and camelCase humps."""
     parts: List[str] = []
+
     for piece in token.split("_"):
         if not piece:
             continue
@@ -32,15 +30,17 @@ def split_identifier(token: str) -> List[str]:
 
 def analyze(text: str) -> Iterator[str]:
     """Yield the searchable tokens of `text`, lowercased.
-
-    Each identifier yields itself plus its parts, so `get_model_config`
-    matches both the exact identifier and the words "model" and "config".
     """
+    # `finditer()` will find every token
     for match in TOKEN.finditer(text):
+        # `group(0)` means: Give me the actual text that matched.
         token = match.group(0)
+
         lowered = token.lower()
+
         if len(lowered) >= MIN_TOKEN_LENGTH:
             yield lowered
+
         parts = split_identifier(token)
         if len(parts) > 1:
             for part in parts:
@@ -50,16 +50,13 @@ def analyze(text: str) -> Iterator[str]:
 
 
 def path_tokens(file_path: str) -> str:
-    """Words carried by `file_path` itself, as indexable text.
-
-    A question often names the module it is about ("the triton flash
-    attention module"), and that word may not appear in the chunk body at
-    all - only in its path.
-    """
+    """Words carried by `file_path` itself, as indexable text."""
     words: List[str] = []
+
     for piece in PATH_SEPARATORS.split(file_path):
         if not piece:
             continue
+
         words.append(piece)
         parts = split_identifier(piece)
         if len(parts) > 1:

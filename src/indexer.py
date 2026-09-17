@@ -35,6 +35,7 @@ class Indexer:
     def build(self, raw_dir: Path, repo_root: Path) -> None:
         """Read and chunk every indexable file under *raw_dir*."""
 
+        # `paths` is a list of all corpus files
         paths = list_corpus_files(raw_dir)
 
         self.chunks = []
@@ -45,17 +46,18 @@ class Indexer:
             try:
                 file_path, text = read_corpus_file(path, repo_root)
             except OSError as exc:
+                # In case we have an error reading one file we will skip it only
+                # and tqdm will print this message in the terminal
                 tqdm.write(f"skipped {path}: {exc}")
                 continue
 
             for chunk in chunk_file(file_path, text, self.max_chunk_size):
-                # Index the path's words alongside the body: a question often
-                # names the module ("the triton flash attention module") with
-                # a word that appears only in the path.
                 chunk.indexed_text = (
                     path_tokens(file_path) + "\n" + chunk.text
                 )
+
                 self.chunks.append(chunk)
+
 
     def save(self, processed_dir: Path) -> None:
         """Write chunk metadata, the fitted vectorizer and the matrix.
@@ -85,9 +87,10 @@ class Indexer:
             sublinear_tf=True, analyzer=analyze
         )
 
+        # Create the vectorizer matrix.
         matrix = vectorizer.fit_transform(c.search_text for c in self.chunks)
 
-        # Save everything using joblib.
+        # Save everything using joblib inside this file: tfidf.joblib.
         joblib.dump(
             {"vectorizer": vectorizer, "matrix": matrix},
             processed_dir / TFIDF_FILE,
@@ -97,6 +100,8 @@ class Indexer:
         meta = {
             "max_chunk_size": self.max_chunk_size,
             "n_chunks": len(self.chunks),
+
+            # The number of unique searchable terms (features) in the TF-IDF vocabulary.
             "n_features": int(matrix.shape[1]),
         }
 
