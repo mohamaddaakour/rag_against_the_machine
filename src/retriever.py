@@ -10,8 +10,7 @@ from tqdm import tqdm
 from src.indexer import CHUNKS_FILE, TFIDF_FILE
 from src.models import MinimalSource, ScoredSource
 
-# Queries scored per matrix multiply; bounds the dense score matrix to
-# n_chunks x BATCH_SIZE floats regardless of dataset size.
+# Process at most 64 queries at a time.
 BATCH_SIZE = 64
 
 
@@ -30,7 +29,7 @@ class Retriever:
 
     @classmethod
     def load(cls, processed_dir: Path) -> "Retriever":
-        """Read the artefacts written by :meth:`Indexer.save`.
+        """Create the Retriver instance.
 
         Raises:
             FileNotFoundError: If the index has not been built yet.
@@ -46,9 +45,11 @@ class Retriever:
         sources: List[MinimalSource] = []
 
         with chunks_path.open(encoding="utf-8") as handle:
+            # Iterate the file line by line.
             for line in handle:
                 if line.strip():
                     sources.append(MinimalSource.model_validate_json(line))
+
         payload: Dict[str, Any] = joblib.load(tfidf_path)
 
         # Return a Retriver class instance
@@ -71,23 +72,28 @@ class Retriever:
         vocabulary term gets an empty list; the other queries are unaffected.
         """
         results: List[List[ScoredSource]] = [[] for _ in queries]
+
         if k <= 0:
             return results
 
-        # Positions of the queries worth scoring at all.
+        # Indexes of not blank queries that worth scoring at all.
         live = [i for i, q in enumerate(queries) if q.strip()]
 
         for start in tqdm(
             range(0, len(live), BATCH_SIZE),
             desc="Searching",
             unit="batch",
+
+            # show a progress bar, but only if there's more than one batch.
             disable=len(live) <= BATCH_SIZE,
         ):
             batch = live[start:start + BATCH_SIZE]
+
+            # It grabs the actual query text for those indices and turns them into TF-IDF vectors.
             vectors = self.vectorizer.transform([queries[i] for i in batch])
 
             # One multiply scores every chunk against every query in the
-            # batch: shape (n_chunks, len(batch)), one column per query.
+            # batch.
             scores = np.asarray((self.matrix @ vectors.T).todense())
 
             for column, query_index in enumerate(batch):
@@ -97,16 +103,26 @@ class Retriever:
                 results[query_index] = self._top_k(scores[:, column], k)
         return results
 
+
     def _top_k(self, scores: Any, k: int) -> List[ScoredSource]:
         """Rank one score column, best first, dropping non-positive scores."""
+        # Don't take number of chuncks more than exist.
         k = min(k, scores.size)
+
+        # This finds the indices of approximately the top k values efficiently.
         top = np.argpartition(-scores, k - 1)[:k]
+
+        # argpartition() does not guarantee that the selected indices are ordered from best to worst.
         top = top[np.argsort(-scores[top])]
+
         ranked: List[ScoredSource] = []
 
         for position in top:
+            # We sorted the list so if we get a score of 0 this means
+            # this is a useless source and everything next is also.
             if scores[position] <= 0.0:
                 break
+
             source = self.sources[int(position)]
             ranked.append(
                 ScoredSource(

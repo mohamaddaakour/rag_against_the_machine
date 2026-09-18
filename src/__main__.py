@@ -71,7 +71,14 @@ class Cli:
         save_directory: str = DEFAULT_SEARCH_DIR,
         processed_dir: str = DEFAULT_PROCESSED_DIR,
     ) -> None:
-        """Search every question in *dataset_path*; write StudentSearchResults."""
+        """Search every question in *dataset_path*; write StudentSearchResults.
+
+            Args:
+                dataset_path: Path to the dataset containing the questions to search.
+                k: Number of top chunks to retrieve for each question.
+                save_directory: Directory where the search results will be saved.
+                processed_dir: Directory containing the persisted TF-IDF index.
+        """
         k = int(k)
         dataset_file = Path(str(dataset_path))
         dataset = load_dataset(dataset_file)
@@ -87,8 +94,6 @@ class Cli:
                 MinimalSearchResults(
                     question_id=question.question_id,
                     question=question.question,
-                    # Drop the score: the graded file carries only the
-                    # three MinimalSource fields.
                     retrieved_sources=[
                         MinimalSource(
                             file_path=s.file_path,
@@ -101,10 +106,13 @@ class Cli:
                 for question, sources in zip(questions, ranked)
             ],
         )
+
         out_path = save_search_results(
             results, Path(str(save_directory)), dataset_file.name
         )
+
         print(f"Saved student_search_results to {out_path.as_posix()}")
+
 
     def answer(
         self,
@@ -124,6 +132,7 @@ class Cli:
                 f"[{source.first_character_index}-"
                 f"{source.last_character_index}]"
             )
+
         context = build_context(REPO_ROOT, sources)
         print(f"\nLoading {model_name} ...")
         generator = Generator.load(str(model_name))

@@ -7,11 +7,10 @@ from src.models import MinimalSource
 
 MODEL_NAME = "Qwen/Qwen3-0.6B"
 
-# Characters of context handed to the model. Qwen3-0.6B has a large context
-# window, but every extra token costs CPU seconds, and the answer is meant to
-# come from the top few spans anyway.
+# At most 6,000 characters of retrieved source code will be given to the model.
 MAX_CONTEXT_CHARS = 6000
 
+# The system prompt that will be given to the LLM at the end.
 SYSTEM_PROMPT = (
     "You answer questions about the vLLM codebase. Use only the provided "
     "context. If the context does not contain the answer, say so. Answer in "
@@ -20,15 +19,12 @@ SYSTEM_PROMPT = (
 
 
 def read_span(repo_root: Path, source: MinimalSource) -> str:
-    """Re-read the text of `source` from the corpus.
-
-    The index stores spans, not text, so the file is the single source of
-    truth. It is opened exactly as the indexer opened it, or the offsets
-    would not line up.
-    """
+    """Read the actual data of a chunck."""
     path = repo_root / source.file_path
+
     if not path.is_file():
         return ""
+
     with path.open(encoding="utf-8", errors="replace", newline="") as handle:
         text = handle.read()
     return text[source.first_character_index:source.last_character_index]
@@ -42,6 +38,7 @@ def build_context(
     """Concatenate the spans of `sources`, best first, within a budget."""
     blocks: List[str] = []
     used = 0
+
     for source in sources:
         span = read_span(repo_root, source).strip()
         if not span:
@@ -78,17 +75,18 @@ class Generator:
 
     @classmethod
     def load(cls, model_name: str = MODEL_NAME) -> "Generator":
-        """Load `model_name` on CPU.
-
-        Imported here rather than at module import time: transformers and
-        torch together take seconds to import, and no other command needs
-        them.
-        """
+        """Load `model_name` on CPU."""
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
+        # The tokenizer knows how to convert text into the token representation expected by Qwen.
         tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+        # Load the model.
         model = AutoModelForCausalLM.from_pretrained(model_name)
+
+        # This tells PyTorch: We're using the model for inference, not training.
         model.eval()
+
         return cls(tokenizer, model)
 
     def answer(
@@ -101,13 +99,19 @@ class Generator:
         import torch
 
         messages = build_messages(question, context)
+
+        # Convert chat messages into Qwen's prompt format
         prompt = self.tokenizer.apply_chat_template(
             messages,
             tokenize=False,
             add_generation_prompt=True,
             enable_thinking=False,
         )
+
+        # Toeknize the prompt
         inputs = self.tokenizer(prompt, return_tensors="pt")
+
+        # This is where Qwen actually generates text.
         with torch.no_grad():
             generated = self.model.generate(
                 **inputs,
@@ -115,8 +119,12 @@ class Generator:
                 do_sample=False,
                 pad_token_id=self.tokenizer.eos_token_id,
             )
+
         new_tokens = generated[0][inputs["input_ids"].shape[1]:]
+
+        # Convert tokens back into text
         text = self.tokenizer.decode(new_tokens, skip_special_tokens=True)
+
         return _strip_thinking(text).strip()
 
 
