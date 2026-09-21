@@ -3,7 +3,12 @@
 from pathlib import Path
 from typing import Any, Dict, List, Sequence
 
-from src.models import MinimalSource
+from src.models import (
+    MinimalAnswer,
+    MinimalSource,
+    StudentSearchResults,
+    StudentSearchResultsAndAnswer,
+)
 
 MODEL_NAME = "Qwen/Qwen3-0.6B"
 
@@ -78,7 +83,7 @@ class Generator:
         """Load `model_name` on CPU."""
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
-        # The tokenizer knows how to convert text into the token representation expected by Qwen.
+        # The tokenizer converts text into the token form Qwen expects.
         tokenizer = AutoTokenizer.from_pretrained(model_name)
 
         # Load the model.
@@ -126,6 +131,33 @@ class Generator:
         text = self.tokenizer.decode(new_tokens, skip_special_tokens=True)
 
         return _strip_thinking(text).strip()
+
+
+def answer_all(
+    repo_root: Path,
+    results: StudentSearchResults,
+    generator: Any,
+    max_new_tokens: int = 256,
+) -> StudentSearchResultsAndAnswer:
+    """Answer every question of `results` from its own retrieved sources."""
+    from tqdm import tqdm
+
+    answers: List[MinimalAnswer] = []
+    total = len(results.search_results)
+    for entry in tqdm(results.search_results, desc="Answering",
+                      unit="question"):
+        context = build_context(repo_root, entry.retrieved_sources)
+        text = generator.answer(entry.question, context, max_new_tokens)
+        answers.append(
+            MinimalAnswer(
+                question_id=entry.question_id,
+                question=entry.question,
+                retrieved_sources=entry.retrieved_sources,
+                answer=text,
+            )
+        )
+    print(f"Processed {len(answers)} of {total} questions")
+    return StudentSearchResultsAndAnswer(search_results=answers, k=results.k)
 
 
 def _strip_thinking(text: str) -> str:

@@ -1,7 +1,9 @@
 """Load a persisted index and rank chunks against a query."""
 
+from collections import OrderedDict
+from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 import joblib
 import numpy as np
@@ -12,6 +14,9 @@ from src.models import MinimalSource, ScoredSource
 
 # Process at most 64 queries at a time.
 BATCH_SIZE = 64
+
+# Number of (query, k) results kept in memory per retriever.
+QUERY_CACHE_SIZE = 256
 
 
 class Retriever:
@@ -26,6 +31,10 @@ class Retriever:
         self.sources = sources
         self.vectorizer = vectorizer
         self.matrix = matrix
+        self._query_cache: "OrderedDict[Tuple[str, int], List[ScoredSource]]"
+        self._query_cache = OrderedDict()
+        self.cache_hits = 0
+        self.cache_misses = 0
 
     @classmethod
     def load(cls, processed_dir: Path) -> "Retriever":
@@ -55,6 +64,22 @@ class Retriever:
         # Return a Retriver class instance
         return cls(sources, payload["vectorizer"], payload["matrix"])
 
+    @classmethod
+    def load_cached(cls, processed_dir: Path) -> "Retriever":
+        """Like `load`, but reuse the in-memory retriever while the index
+        files are unchanged; a rebuilt index is picked up automatically.
+
+        Raises:
+            FileNotFoundError: If the index has not been built yet.
+        """
+        return _load_index(processed_dir.resolve(), _index_stamp(processed_dir))
+
+    def clear_cache(self) -> None:
+        """Forget every cached query result."""
+        self._query_cache.clear()
+        self.cache_hits = 0
+        self.cache_misses = 0
+
     def search(self, query: str, k: int = 10) -> List[ScoredSource]:
         """Top-*k* sources for *query*, best first.
 
@@ -76,8 +101,19 @@ class Retriever:
         if k <= 0:
             return results
 
-        # Indexes of not blank queries that worth scoring at all.
-        live = [i for i, q in enumerate(queries) if q.strip()]
+        # Indexes of not blank queries that worth scoring at all, minus the
+        # ones answered from the query cache.
+        live: List[int] = []
+        for i, q in enumerate(queries):
+            if not q.strip():
+                continue
+            cached = self._query_cache.get((q, k))
+            if cached is not None:
+                self._query_cache.move_to_end((q, k))
+                results[i] = list(cached)
+                self.cache_hits += 1
+            else:
+                live.append(i)
 
         for start in tqdm(
             range(0, len(live), BATCH_SIZE),
@@ -89,7 +125,7 @@ class Retriever:
         ):
             batch = live[start:start + BATCH_SIZE]
 
-            # It grabs the actual query text for those indices and turns them into TF-IDF vectors.
+            # Turn the query text for those indices into TF-IDF vectors.
             vectors = self.vectorizer.transform([queries[i] for i in batch])
 
             # One multiply scores every chunk against every query in the
@@ -101,8 +137,13 @@ class Retriever:
                 if vectors[column].nnz == 0:
                     continue
                 results[query_index] = self._top_k(scores[:, column], k)
-        return results
 
+        for i in live:
+            self.cache_misses += 1
+            self._query_cache[(queries[i], k)] = list(results[i])
+            if len(self._query_cache) > QUERY_CACHE_SIZE:
+                self._query_cache.popitem(last=False)
+        return results
 
     def _top_k(self, scores: Any, k: int) -> List[ScoredSource]:
         """Rank one score column, best first, dropping non-positive scores."""
@@ -112,7 +153,7 @@ class Retriever:
         # This finds the indices of approximately the top k values efficiently.
         top = np.argpartition(-scores, k - 1)[:k]
 
-        # argpartition() does not guarantee that the selected indices are ordered from best to worst.
+        # argpartition() does not order the selected indices best to worst.
         top = top[np.argsort(-scores[top])]
 
         ranked: List[ScoredSource] = []
@@ -133,3 +174,24 @@ class Retriever:
                 )
             )
         return ranked
+
+
+@lru_cache(maxsize=1)
+def _load_index(processed_dir: Path, stamp: Tuple[int, int]) -> Retriever:
+    """Load the index once per (directory, stamp); a rebuild changes the stamp,
+    so it is a new key and the old retriever is dropped from the cache.
+
+    *stamp* is unused in the body: it only exists to be part of the cache key.
+    """
+    return Retriever.load(processed_dir)
+
+
+def _index_stamp(processed_dir: Path) -> Tuple[int, int]:
+    """Modification times of the index files, to detect a rebuilt index."""
+    try:
+        return (
+            (processed_dir / CHUNKS_FILE).stat().st_mtime_ns,
+            (processed_dir / TFIDF_FILE).stat().st_mtime_ns,
+        )
+    except OSError:
+        return (0, 0)

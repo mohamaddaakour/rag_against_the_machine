@@ -5,7 +5,7 @@ MYPY_FLAGS := --warn-return-any --warn-unused-ignores \
               --check-untyped-defs
 
 .DEFAULT_GOAL := help
-.PHONY: install run debug clean lint lint-strict test index search help
+.PHONY: install run debug clean lint lint-strict test index search serve help
 
 install:
 	$(UV) sync
@@ -33,9 +33,12 @@ index:
 search:
 	$(UV) run python -m src search "$(Q)" --k $(or $(K),5)
 
+serve:
+	$(UV) run python -m src serve --port $(or $(PORT),8000)
+
 clean:
 	$(UV) run python -c "import pathlib, shutil; [shutil.rmtree(p, ignore_errors=True) for p in pathlib.Path('.').rglob('__pycache__') if '.venv' not in p.parts and 'data' not in p.parts]"
 	$(UV) run python -c "import shutil; [shutil.rmtree(d, ignore_errors=True) for d in ('.mypy_cache', '.pytest_cache', '.ruff_cache')]"
 
 help:
-	@echo "install run debug lint lint-strict test index search clean"
+	@echo "install run debug lint lint-strict test index search serve clean"

@@ -126,8 +126,8 @@ def _regions(text: str, boundaries: Sequence[int]) -> List[Region]:
 def _pack(
     regions: Sequence[Region], budget: int, limit: int, text_length: int
 ) -> List[Region]:
-    """It's like chunking the whole Markdown file based on headings first, and then joining some
-    chunks together to make each chunk as large as possible while respecting the size limit and overlap
+    """Chunk a Markdown file on headings first, then join neighbouring chunks
+    to make each as large as possible within the size limit and overlap
 
     Parameters:
         limit: max chunck size.

@@ -89,3 +89,41 @@ def test_search_many_crosses_a_batch_boundary(
     assert [r[0].file_path for r in batched] == [
         "data/raw/lora.md", "data/raw/quant.md", "data/raw/server.py"
     ] * 3
+
+
+def test_repeated_query_is_served_from_the_cache(retriever: Retriever) -> None:
+    first = retriever.search("lora adapters", k=3)
+    second = retriever.search("lora adapters", k=3)
+    assert second == first
+    assert (retriever.cache_hits, retriever.cache_misses) == (1, 1)
+
+
+def test_cache_is_keyed_on_k(retriever: Retriever) -> None:
+    retriever.search("lora adapters", k=1)
+    assert len(retriever.search("lora adapters", k=3)) >= 1
+    assert retriever.cache_misses == 2
+
+
+def test_cached_result_cannot_be_corrupted_by_the_caller(
+    retriever: Retriever,
+) -> None:
+    retriever.search("lora adapters", k=3).clear()
+    assert retriever.search("lora adapters", k=3) != []
+
+
+def test_load_cached_reuses_and_reloads_on_rebuild(tmp_path: Path) -> None:
+    raw = tmp_path / "data" / "raw"
+    raw.mkdir(parents=True)
+    (raw / "a.md").write_text("alpha beta\n", encoding="utf-8")
+    processed = tmp_path / "processed"
+    indexer = Indexer(max_chunk_size=200)
+    indexer.build(raw, tmp_path)
+    indexer.save(processed)
+
+    first = Retriever.load_cached(processed)
+    assert Retriever.load_cached(processed) is first
+
+    (raw / "b.md").write_text("gamma delta\n", encoding="utf-8")
+    indexer.build(raw, tmp_path)
+    indexer.save(processed)
+    assert Retriever.load_cached(processed) is not first

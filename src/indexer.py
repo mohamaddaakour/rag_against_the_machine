@@ -58,7 +58,6 @@ class Indexer:
 
                 self.chunks.append(chunk)
 
-
     def save(self, processed_dir: Path) -> None:
         """Write chunk metadata, the fitted vectorizer and the matrix.
 

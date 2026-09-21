@@ -7,12 +7,17 @@ the model sees, which is where grounding is won or lost.
 from pathlib import Path
 
 from src.generator import (
+    answer_all,
     build_context,
     build_messages,
     read_span,
     _strip_thinking,
 )
-from src.models import MinimalSource
+from src.models import (
+    MinimalSearchResults,
+    MinimalSource,
+    StudentSearchResults,
+)
 
 
 def make_corpus(root: Path) -> None:
@@ -96,3 +101,33 @@ def test_build_messages_says_so_when_nothing_was_retrieved() -> None:
 def test_strip_thinking_drops_a_reasoning_block() -> None:
     assert _strip_thinking("<think>hmm</think>The answer.") == "The answer."
     assert _strip_thinking("The answer.") == "The answer."
+
+
+class FakeGenerator:
+    """Stands in for the model: echoes whether it was given context."""
+
+    def answer(self, question: str, context: str, max_new_tokens: int) -> str:
+        return f"ctx={bool(context)}"
+
+
+def test_answer_all_answers_every_question_and_keeps_sources(
+    tmp_path: Path,
+) -> None:
+    make_corpus(tmp_path)
+    good = source("data/raw/a.md", 7, 50)
+    results = StudentSearchResults(
+        k=2,
+        search_results=[
+            MinimalSearchResults(
+                question_id="q1", question="How?", retrieved_sources=[good]
+            ),
+            MinimalSearchResults(
+                question_id="q2", question="Why?", retrieved_sources=[]
+            ),
+        ],
+    )
+    out = answer_all(tmp_path, results, FakeGenerator())
+    assert out.k == 2
+    assert [a.question_id for a in out.search_results] == ["q1", "q2"]
+    assert [a.answer for a in out.search_results] == ["ctx=True", "ctx=False"]
+    assert out.search_results[0].retrieved_sources == [good]
