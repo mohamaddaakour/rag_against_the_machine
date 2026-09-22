@@ -130,6 +130,7 @@ def _pack(
     to make each as large as possible within the size limit and overlap
 
     Parameters:
+        budget: max chunk size respecting the overlap.
         limit: max chunck size.
     """
     packed: List[Region] = []
@@ -172,7 +173,8 @@ def _cut(
                 )
             )
             continue
-        # Too big to keep whole: fall back to windows, shifted into place.
+
+        # If piece is still too big (e.g. one giant function longer than 2000 chars), fall back to chunk_fixed
         for window in chunk_fixed(file_path, piece, max_chunk_size):
             chunks.append(
                 Chunk(

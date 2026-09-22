@@ -46,6 +46,7 @@ class Cli:
             raise ValueError(
                 f"max_chunk_size must be between 1 and {MAX_CHUNK_WIDTH}"
             )
+
         indexer = Indexer(max_chunk_size=size)
         indexer.build(Path(raw_dir), REPO_ROOT)
         indexer.save(Path(processed_dir))

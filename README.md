@@ -16,6 +16,12 @@ embeddings and no external services. Everything runs through a Python Fire CLI:
 `index`, `search`, `search_dataset`, `answer`, `answer_dataset`, `evaluate`,
 plus `serve` (bonus HTTP API).
 
+## Informations
+
+- a corpus is the collection of documents (or text data) that the system searches through to find relevant information to feed into the LLM's context before it generates an answer.
+
+- Indexing in a RAG system is the process of organizing your corpus into a structure that allows for fast, efficient search — so that when a query comes in, the system can quickly find the most relevant chunks instead of scanning the entire corpus every time.
+
 ## Instructions
 
 Requires Python 3.10+ and [`uv`](https://docs.astral.sh/uv/). The vLLM corpus

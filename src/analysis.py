@@ -4,10 +4,11 @@ import re
 from typing import Iterator, List
 
 # This defines the pattern for finding tokens.
+# example: "user_42 hello" will be ['user_42', 'hello']
 TOKEN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+")
 
 # Handle camelCase and PascalCase names and split the word.
-# example: getName should be(get, Name)
+# example: getName should be (get, Name)
 CAMEL = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 
 # Characters that separate the parts of a path.
@@ -25,12 +26,14 @@ def split_identifier(token: str) -> List[str]:
         if not piece:
             continue
         parts.extend(part for part in CAMEL.split(piece) if part)
+
     return parts
 
 
 def analyze(text: str) -> Iterator[str]:
-    """Yield the searchable tokens of `text`, lowercased.
-    """
+    """function that takes text and returns an iterator
+    something you loop over lazily, one value at a time, instead
+    of building a full list upfront."""
     # `finditer()` will find every token
     for match in TOKEN.finditer(text):
         # `group(0)` means: Give me the actual text that matched.

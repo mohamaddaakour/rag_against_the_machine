@@ -46,7 +46,7 @@ class Indexer:
             try:
                 file_path, text = read_corpus_file(path, repo_root)
             except OSError as exc:
-                # In case we have an error reading one file we will skip it only
+                # In case we have an error reading one file we will skip it only,
                 # and tqdm will print this message in the terminal
                 tqdm.write(f"skipped {path}: {exc}")
                 continue

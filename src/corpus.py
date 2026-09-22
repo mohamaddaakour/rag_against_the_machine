@@ -41,7 +41,7 @@ def list_corpus_files(raw_dir: Path) -> List[Path]:
 
     indexable = []
 
-    # `rglob("*")` will go to the files in subdirectories.
+    # `rglob("*")` will go to search the files in subdirectories.
     for p in raw_dir.rglob("*"):
         if p.is_file() and is_indexable(p):
             indexable.append(p)
@@ -59,4 +59,4 @@ def read_corpus_file(path: Path, repo_root: Path) -> Tuple[str, str]:
     # `errors="replace"` means if the file contains some invalid UTF-8
     # bytes, don't crash and replace it with ?.
     with path.open(encoding="utf-8", errors="replace", newline="") as handle:
-        return relative, handle.read()
+        return (relative, handle.read())
