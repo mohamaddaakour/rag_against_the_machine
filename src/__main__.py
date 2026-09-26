@@ -229,6 +229,8 @@ class Cli:
         student = load_search_results(results_file)
         truth = load_dataset(truth_file)
 
+        # Builds a dictionary mapping question_id -> list[MinimalSource] from your results,
+        # so scoring can look up "what did I retrieve for this question" by id.
         by_id: Dict[str, List[MinimalSource]] = {
             entry.question_id: list(entry.retrieved_sources)
             for entry in student.search_results

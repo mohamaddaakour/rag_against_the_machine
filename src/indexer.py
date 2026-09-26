@@ -52,6 +52,8 @@ class Indexer:
                 continue
 
             for chunk in chunk_file(file_path, text, self.max_chunk_size):
+                # This makes the file's path itself become searchable text,
+                # in addition to the chunk's actual content.
                 chunk.indexed_text = (
                     path_tokens(file_path) + "\n" + chunk.text
                 )

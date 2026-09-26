@@ -125,6 +125,8 @@ class Generator:
                 pad_token_id=self.tokenizer.eos_token_id,
             )
 
+        # The model sends back your prompt followed by its answer,
+        # and this line cuts off the prompt so only the answer is left.
         new_tokens = generated[0][inputs["input_ids"].shape[1]:]
 
         # Convert tokens back into text

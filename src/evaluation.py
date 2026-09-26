@@ -63,6 +63,8 @@ def recall_at_k(
     Raises:
         ValueError: If `truth` carries no answered question to score against.
     """
+    # Filter out unanswered questions because they are useless in the scoring.
+    # We just need the answered questions.
     answered = [
         q for q in truth.rag_questions if isinstance(q, AnsweredQuestion)
     ]

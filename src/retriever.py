@@ -1,6 +1,8 @@
 """Load a persisted index and rank chunks against a query."""
 
+# a dictionary that remembers insertion order. It is used to build the query cache.
 from collections import OrderedDict
+
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
@@ -31,8 +33,9 @@ class Retriever:
         self.sources = sources
         self.vectorizer = vectorizer
         self.matrix = matrix
-        self._query_cache: "OrderedDict[Tuple[str, int], List[ScoredSource]]"
-        self._query_cache = OrderedDict()
+        self._query_cache: "OrderedDict[Tuple[str, int], List[ScoredSource]]" = OrderedDict()
+
+        # Used for statistics
         self.cache_hits = 0
         self.cache_misses = 0
 
@@ -153,7 +156,6 @@ class Retriever:
         # This finds the indices of approximately the top k values efficiently.
         top = np.argpartition(-scores, k - 1)[:k]
 
-        # argpartition() does not order the selected indices best to worst.
         top = top[np.argsort(-scores[top])]
 
         ranked: List[ScoredSource] = []
@@ -190,6 +192,7 @@ def _index_stamp(processed_dir: Path) -> Tuple[int, int]:
     """Modification times of the index files, to detect a rebuilt index."""
     try:
         return (
+            # Asks the OS when the file was last modified, in nanoseconds.
             (processed_dir / CHUNKS_FILE).stat().st_mtime_ns,
             (processed_dir / TFIDF_FILE).stat().st_mtime_ns,
         )
