@@ -1,4 +1,4 @@
-"""Build the lexical index over the chunked corpus and persist it."""
+"""Build the lexical (BM25) and semantic indexes over the chunked corpus."""
 
 import json
 from pathlib import Path
@@ -6,22 +6,57 @@ from typing import List
 
 # joblib is used to save Python/ML objects to disk.
 import joblib
+import numpy as np
+import scipy.sparse as sp
 
-# TfidfVectorizer transforms text into numerical vectors.
-from sklearn.feature_extraction.text import TfidfVectorizer
+# CountVectorizer turns text into a sparse matrix of term counts.
+from sklearn.feature_extraction.text import CountVectorizer
 
 # For progress bar.
 from tqdm import tqdm
 
-from src.analysis import analyze, path_tokens
+from src.analysis import analyze_stemmed, path_tokens
 from src.chunking import chunk_file
 from src.corpus import list_corpus_files, read_corpus_file
+from src.embeddings import EMBEDDING_MODEL_NAME, encode_texts, load_embedding_model
 from src.models import Chunk
 
 # These define the files that will be produced.
 CHUNKS_FILE = "chunks.jsonl"
-TFIDF_FILE = "tfidf.joblib"
+LEXICAL_FILE = "bm25.joblib"
+EMBEDDINGS_FILE = "embeddings.joblib"
 META_FILE = "meta.json"
+
+# BM25 parameters (the usual defaults). K1 controls how fast repeated terms
+# stop adding score; B controls how much long chunks are penalised.
+BM25_K1 = 1.2
+BM25_B = 0.75
+
+
+def bm25_weights(counts: sp.csr_matrix, k1: float = BM25_K1,
+                 b: float = BM25_B) -> sp.csr_matrix:
+    """Turn a (chunks x terms) count matrix into BM25 term weights.
+
+    Every stored entry becomes idf(t) * tf * (k1 + 1) / (tf + k1 * norm),
+    with norm = 1 - b + b * chunk_length / average_chunk_length. Summing a
+    chunk's weights over the query terms gives its BM25 score, so ranking
+    is a single sparse multiply with a 0/1 query vector.
+    """
+    counts = sp.csr_matrix(counts, dtype=np.float64)
+    n_chunks = counts.shape[0]
+
+    # Number of chunks each term appears in, and its BM25 idf.
+    doc_freq = np.bincount(counts.indices, minlength=counts.shape[1])
+    idf = np.log((n_chunks - doc_freq + 0.5) / (doc_freq + 0.5) + 1.0)
+
+    lengths = np.asarray(counts.sum(axis=1)).ravel()
+    norm = k1 * (1 - b + b * lengths / max(lengths.mean(), 1e-9))
+
+    # Row index of every stored entry, to apply that chunk's length norm.
+    rows = np.repeat(np.arange(n_chunks), np.diff(counts.indptr))
+    tf = counts.data
+    counts.data = tf * (k1 + 1) / (tf + norm[rows]) * idf[counts.indices]
+    return counts
 
 
 class Indexer:
@@ -61,7 +96,7 @@ class Indexer:
                 self.chunks.append(chunk)
 
     def save(self, processed_dir: Path) -> None:
-        """Write chunk metadata, the fitted vectorizer and the matrix.
+        """Write chunk metadata, the BM25 index and the embedding index.
 
         Args:
             processed_dir: Directory to write the generated index into.
@@ -82,19 +117,30 @@ class Indexer:
 
         print(f"Vectorizing {len(self.chunks)} chunks ...")
 
-        # create the object that converts text into vectors, using our
-        # identifier-aware analyzer for both chunks and queries.
-        vectorizer: TfidfVectorizer = TfidfVectorizer(
-            sublinear_tf=True, analyzer=analyze
-        )
+        # Count terms with our identifier-aware, stemmed analyzer; the same
+        # vectorizer turns queries into terms at search time.
+        vectorizer = CountVectorizer(analyzer=analyze_stemmed)
+        counts = vectorizer.fit_transform(c.search_text for c in self.chunks)
 
-        # Create the vectorizer matrix.
-        matrix = vectorizer.fit_transform(c.search_text for c in self.chunks)
+        # Precompute every chunk's BM25 weight for every term it contains.
+        matrix = bm25_weights(counts)
 
-        # Save everything using joblib inside this file: tfidf.joblib.
+        # Save everything using joblib inside this file: bm25.joblib.
         joblib.dump(
             {"vectorizer": vectorizer, "matrix": matrix},
-            processed_dir / TFIDF_FILE,
+            processed_dir / LEXICAL_FILE,
+        )
+
+        print(f"Embedding {len(self.chunks)} chunks with {EMBEDDING_MODEL_NAME} ...")
+
+        # Build the semantic index: one normalized vector per chunk, so
+        # a later cosine similarity against a query is a dot product.
+        model = load_embedding_model(EMBEDDING_MODEL_NAME)
+        embeddings = encode_texts(model, [c.search_text for c in self.chunks])
+
+        joblib.dump(
+            {"model_name": EMBEDDING_MODEL_NAME, "embeddings": embeddings},
+            processed_dir / EMBEDDINGS_FILE,
         )
 
         # Metadata
@@ -102,8 +148,14 @@ class Indexer:
             "max_chunk_size": self.max_chunk_size,
             "n_chunks": len(self.chunks),
 
-            # The number of unique searchable terms (features) in the TF-IDF vocabulary.
+            # The number of unique searchable terms (features) in the BM25 vocabulary.
             "n_features": int(matrix.shape[1]),
+            "bm25_k1": BM25_K1,
+            "bm25_b": BM25_B,
+
+            # Semantic index metadata.
+            "embedding_model": EMBEDDING_MODEL_NAME,
+            "embedding_dim": int(embeddings.shape[1]),
         }
 
         # Save the metadata

@@ -20,7 +20,7 @@ from src.models import (
     MinimalSource,
     StudentSearchResults,
 )
-from src.retriever import Retriever
+from src.retriever import DEFAULT_ALPHA, Retriever
 from src.server import RagService, create_app
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -60,10 +60,27 @@ class Cli:
         query: str,
         k: int = 10,
         processed_dir: str = DEFAULT_PROCESSED_DIR,
+        mode: str = "hybrid",
+        alpha: float = DEFAULT_ALPHA,
     ) -> None:
-        """Print the top-*k* sources for a single *query*."""
+        """Print the top-*k* sources for a single *query*.
+
+        Args:
+            mode: "hybrid" (default, fuses both), "lexical" (BM25 only),
+                or "semantic" (embeddings only).
+            alpha: Weight on the lexical score in hybrid mode; (1 - alpha)
+                goes to the semantic score. Ignored outside hybrid mode.
+        """
+        if mode not in ("lexical", "semantic", "hybrid"):
+            raise ValueError("mode must be 'lexical', 'semantic', or 'hybrid'")
+
         retriever = Retriever.load(Path(processed_dir))
-        sources = retriever.search(str(query), int(k))
+        if mode == "lexical":
+            sources = retriever.search(str(query), int(k))
+        elif mode == "semantic":
+            sources = retriever.search_semantic(str(query), int(k))
+        else:
+            sources = retriever.search_hybrid(str(query), int(k), float(alpha))
         if not sources:
             print("No results.")
             return
@@ -80,6 +97,8 @@ class Cli:
         k: int = 10,
         save_directory: str = DEFAULT_SEARCH_DIR,
         processed_dir: str = DEFAULT_PROCESSED_DIR,
+        mode: str = "hybrid",
+        alpha: float = DEFAULT_ALPHA,
     ) -> None:
         """Search every question in *dataset_path*; write StudentSearchResults.
 
@@ -87,8 +106,13 @@ class Cli:
                 dataset_path: Path to the dataset containing the questions to search.
                 k: Number of top chunks to retrieve for each question.
                 save_directory: Directory where the search results will be saved.
-                processed_dir: Directory containing the persisted TF-IDF index.
+                processed_dir: Directory containing the persisted index.
+                mode: "hybrid" (default, fuses both), "lexical", or "semantic".
+                alpha: Weight on the lexical score in hybrid mode.
         """
+        if mode not in ("lexical", "semantic", "hybrid"):
+            raise ValueError("mode must be 'lexical', 'semantic', or 'hybrid'")
+
         k = int(k)
         dataset_file = Path(str(dataset_path))
         dataset = load_dataset(dataset_file)
@@ -96,7 +120,14 @@ class Cli:
         print(f"Loaded {len(questions)} questions from {dataset_file}")
 
         retriever = Retriever.load(Path(processed_dir))
-        ranked = retriever.search_many([q.question for q in questions], k)
+        question_texts = [q.question for q in questions]
+
+        if mode == "lexical":
+            ranked = retriever.search_many(question_texts, k)
+        elif mode == "semantic":
+            ranked = retriever.search_semantic_many(question_texts, k)
+        else:
+            ranked = retriever.search_hybrid_many(question_texts, k, float(alpha))
 
         results = StudentSearchResults(
             k=k,
@@ -229,8 +260,9 @@ class Cli:
         student = load_search_results(results_file)
         truth = load_dataset(truth_file)
 
-        # Builds a dictionary mapping question_id -> list[MinimalSource] from your results,
-        # so scoring can look up "what did I retrieve for this question" by id.
+        # Builds a dictionary mapping question_id -> list[MinimalSource]
+        # from your results, so scoring can look up "what did I retrieve
+        # for this question" by id.
         by_id: Dict[str, List[MinimalSource]] = {
             entry.question_id: list(entry.retrieved_sources)
             for entry in student.search_results

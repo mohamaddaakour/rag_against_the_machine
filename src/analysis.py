@@ -3,6 +3,13 @@
 import re
 from typing import Iterator, List
 
+import snowballstemmer
+
+# Reduces inflected words to a common root (e.g. "loading"/"loaded" -> "load")
+# so a query and a doc using different word forms still overlap in the
+# lexical (BM25) index.
+_STEMMER = snowballstemmer.stemmer("english")
+
 # This defines the pattern for finding tokens.
 # example: "user_42 hello" will be ['user_42', 'hello']
 TOKEN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+")
@@ -50,6 +57,18 @@ def analyze(text: str) -> Iterator[str]:
                 lowered_part = part.lower()
                 if len(lowered_part) >= MIN_TOKEN_LENGTH:
                     yield lowered_part
+
+
+def analyze_stemmed(text: str) -> List[str]:
+    """Like `analyze`, but stems every token to its root form.
+
+    This is the analyzer the lexical index uses, for chunks and queries.
+    """
+    tokens = list(analyze(text))
+    if not tokens:
+        return tokens
+    stemmed: List[str] = _STEMMER.stemWords(tokens)
+    return stemmed
 
 
 def path_tokens(file_path: str) -> str:

@@ -68,8 +68,8 @@ class RagService:
             raise HTTPException(status_code=503, detail=str(exc))
 
     def search(self, query: str, k: int) -> List[ScoredSource]:
-        """Top-*k* sources for *query*."""
-        return self.retriever().search(query, k)
+        """Top-*k* sources for *query*, using hybrid (lexical + semantic) ranking."""
+        return self.retriever().search_hybrid(query, k)
 
     def answers_cached(self) -> int:
         """Number of answers currently remembered."""
@@ -116,8 +116,8 @@ def create_app(service: RagService) -> FastAPI:
         retriever = service.retriever()
         return {
             "chunks": len(retriever.sources),
-            "query_cache_hits": retriever.cache_hits,
-            "query_cache_misses": retriever.cache_misses,
+            "query_cache_hits": retriever.total_cache_hits(),
+            "query_cache_misses": retriever.total_cache_misses(),
             "answers_cached": service.answers_cached(),
         }
 

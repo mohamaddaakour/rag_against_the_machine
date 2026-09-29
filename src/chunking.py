@@ -6,9 +6,9 @@ from typing import List, Sequence, Tuple
 
 from src.models import Chunk
 
-# Each new chunk contains 15% of the previous chunk, the reason to do that
+# Each new chunk contains 30% of the previous chunk, the reason to do that
 # is to avoid losing context at the boundary between chunks.
-OVERLAP_RATIO = 0.15
+OVERLAP_RATIO = 0.30
 
 PYTHON_SUFFIXES = (".py", ".pyi")
 PROSE_SUFFIXES = (".md", ".rst", ".txt")
@@ -174,7 +174,8 @@ def _cut(
             )
             continue
 
-        # If piece is still too big (e.g. one giant function longer than 2000 chars), fall back to chunk_fixed
+        # If piece is still too big (e.g. one giant function longer than
+        # 2000 chars), fall back to chunk_fixed
         for window in chunk_fixed(file_path, piece, max_chunk_size):
             chunks.append(
                 Chunk(

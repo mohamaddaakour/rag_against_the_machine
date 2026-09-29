@@ -87,7 +87,7 @@ class Generator:
         tokenizer = AutoTokenizer.from_pretrained(model_name)
 
         # Load the model.
-        model = AutoModelForCausalLM.from_pretrained(model_name)
+        model: Any = AutoModelForCausalLM.from_pretrained(model_name)
 
         # This tells PyTorch: We're using the model for inference, not training.
         model.eval()

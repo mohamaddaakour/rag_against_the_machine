@@ -11,8 +11,9 @@ question about the codebase, it retrieves the source locations that answer it
 hands that exact context to a small local model, `Qwen/Qwen3-0.6B` running on
 CPU, which writes a grounded answer.
 
-Retrieval is lexical (TF-IDF over structure-aware chunks); there are no
-embeddings and no external services. Everything runs through a Python Fire CLI:
+Retrieval is hybrid: a lexical BM25 index and a semantic embedding index
+(`all-MiniLM-L6-v2`, CPU) over structure-aware chunks, fused into one ranking.
+There are no external services. Everything runs through a Python Fire CLI:
 `index`, `search`, `search_dataset`, `answer`, `answer_dataset`, `evaluate`,
 plus `serve` (bonus HTTP API).
 
@@ -68,7 +69,25 @@ stderr and exit with code 1.
 
 ## Bonus features
 
-Two bonuses are implemented.
+Four bonuses are implemented: semantic embeddings, hybrid retrieval, caching
+and a local HTTP API.
+
+**Semantic embeddings** (`src/embeddings.py`): `index` also encodes every chunk
+with `sentence-transformers/all-MiniLM-L6-v2` on CPU (first 128 tokens of each
+chunk, L2-normalised) and saves the vectors to `data/processed/embeddings.joblib`
+next to the lexical index.
+
+**Hybrid retrieval** (`Retriever.search_hybrid_many`, the default everywhere):
+for each query, the BM25 scores and the embedding cosine scores are each divided
+by their maximum, then combined as `alpha * bm25 + (1 - alpha) * semantic` with
+`alpha = 0.6`. `--mode lexical` and `--mode semantic` run one side alone, and
+`--alpha` changes the weight:
+
+```bash
+uv run python -m src search "How do I load a LoRA adapter?" --k 5                 # hybrid
+uv run python -m src search "How do I load a LoRA adapter?" --k 5 --mode lexical  # BM25 only
+uv run python -m src search_dataset --dataset_path <file> --k 10 --alpha 0.5
+```
 
 **Local HTTP API** (`src/server.py`, FastAPI + uvicorn, `serve` command;
 interactive docs at `http://127.0.0.1:8000/docs`):
@@ -76,21 +95,39 @@ interactive docs at `http://127.0.0.1:8000/docs`):
 ```bash
 uv run python -m src serve --port 8000          # make serve PORT=8000
 
-curl -X POST localhost:8000/search -d '{"query": "How do I load a LoRA adapter?", "k": 5}'
-curl -X POST localhost:8000/answer -d '{"query": "Which endpoint loads a LoRA adapter?", "k": 3}'
+curl -X POST localhost:8000/search -H 'Content-Type: application/json' \
+    -d '{"query": "How do I load a LoRA adapter?", "k": 5}'
+curl -X POST localhost:8000/answer -H 'Content-Type: application/json' \
+    -d '{"query": "Which endpoint loads a LoRA adapter?", "k": 3}'
 curl localhost:8000/health ; curl localhost:8000/stats
 ```
 
-`POST /search` returns the ranked sources, `POST /answer` returns the sources
-and the Qwen answer (the model is loaded on the first request and kept in
-memory). Invalid bodies (bad JSON, wrong types) return `422`, an absurd
+The `Content-Type: application/json` header is required: without it curl sends
+form data and the server answers `422`. `POST /search` returns the ranked
+sources (hybrid ranking), `POST /answer` returns `{"answer": ...}` (the model is
+loaded on the first request and kept in memory). Invalid bodies (bad JSON, wrong types) return `422`, an absurd
 `max_new_tokens` returns `400`, an unbuilt index returns `503`; the server never
 prints a traceback. It binds to `127.0.0.1` by default.
 
+# Moulinette Usage
+
+```shell
+uv run python -m src search_dataset \
+  --dataset_path data/datasets/UnansweredQuestions/dataset_docs_public.json \
+  --k 10 \
+  --save_directory data/output/search_results/UnansweredQuestions
+
+./moulinette evaluate_student_search_results \
+  data/output/search_results/UnansweredQuestions/dataset_docs_public.json \
+  data/datasets/AnsweredQuestions/dataset_docs_public.json \
+  --k 10 --max_context_length 2000
+```
+
 **Caching**:
 
-- *Query cache*: `Retriever` keeps an LRU of the last 256 `(query, k)` results,
-  so a repeated query skips vectorising and scoring (about 49 ms cold, 1.7 ms
+- *Query cache*: `Retriever` keeps an LRU of the last 256 `(query, k)` results
+  per mode (hybrid results are also keyed by `alpha`), so a repeated query skips
+  vectorising and scoring (about 49 ms cold, 1.7 ms
   cached over HTTP, on the real index).
 - *Index cache*: `Retriever.load_cached` keeps the loaded index in memory and
   reloads it automatically when `data/processed/` is rebuilt, so the server does
@@ -102,19 +139,23 @@ prints a traceback. It binds to `127.0.0.1` by default.
 ## System architecture
 
 ```
-index:   corpus.py -> chunking.py -> indexer.py (TF-IDF fit) -> data/processed/
-search:  retriever.py loads data/processed/ -> transform(query) -> top-k spans
+index:   corpus.py -> chunking.py -> indexer.py (BM25 + embeddings) -> data/processed/
+search:  retriever.py loads data/processed/ -> BM25 + cosine scores -> fuse -> top-k spans
 answer:  retrieved spans -> re-read from data/raw by offset -> prompt -> Qwen3-0.6B
 ```
 
 - `corpus.py` walks `data/raw/`, filters by extension, and produces the exact
   grader path (`data/raw/vllm-0.10.1/...`, forward slashes) in one place only.
 - `chunking.py` cuts each file into chunks that carry exact character offsets.
-- `analysis.py` is the tokenizer shared by the index and every query.
-- `indexer.py` fits the TF-IDF vectorizer and persists `chunks.jsonl`
-  (metadata only), `tfidf.joblib` (vectorizer + sparse matrix) and `meta.json`.
-- `retriever.py` loads the index and ranks chunks; `search` is a thin wrapper
-  over the batched `search_many`, so single and dataset search share one path.
+- `analysis.py` is the tokenizer (identifier splitting + stemming) shared by
+  the index and every query.
+- `indexer.py` builds the BM25 weights and persists `chunks.jsonl` (metadata
+  only), `bm25.joblib` (vectorizer + sparse BM25 matrix), `embeddings.joblib`
+  (one vector per chunk) and `meta.json`.
+- `embeddings.py` loads the sentence-embedding model and encodes text.
+- `retriever.py` loads the index and ranks chunks in three modes (lexical,
+  semantic, hybrid); each single-query method wraps its batched `*_many`
+  version, so single and dataset search share one path.
 - `generator.py` re-reads the retrieved spans from disk, builds a prompt under a
   character budget and runs Qwen greedily (`answer_all` does it for a dataset).
 - `evaluation.py` implements the subject's rule (same file, IoU >= 0.05).
@@ -132,8 +173,9 @@ Two strategies, chosen by file type, with a fixed window as a fallback:
   Files that do not parse fall back to the fixed window.
 - **Markdown / text (`chunk_markdown`)**: cut on headings, then neighbouring
   sections are joined to fill each chunk as much as the limit allows.
-- **Fixed window (`chunk_fixed`)**: `--max_chunk_size` characters with 15%
-  overlap; used for oversized regions and unparsable files.
+- **Fixed window (`chunk_fixed`)**: `--max_chunk_size` characters with 30%
+  overlap; used for oversized regions and unparsable files. 30% was measured
+  against 15% and 45%: it gave the best recall.
 
 Offsets are computed on raw decoded text (files opened with `newline=""`), so
 `text[first:last]` always equals the chunk text. No chunk exceeds 2000
@@ -142,40 +184,73 @@ invalidate a whole output file.
 
 ## Retrieval method
 
-TF-IDF (`TfidfVectorizer`, `sublinear_tf=True`) ranked by cosine similarity,
-computed as one sparse matrix product for all queries in a batch. Two
-identifier-aware additions target code questions:
+Hybrid of a lexical and a semantic ranking.
 
-- The custom analyzer keeps `fused_batched_moe` as a token **and** emits
-  `fused`, `batched`, `moe` (also for camelCase), so "fused batched MoE" matches.
+**Lexical: BM25** (`k1 = 1.2`, `b = 0.75`). At index time every chunk's weight
+for every term it contains is precomputed (`indexer.bm25_weights`); a query is a
+0/1 vector of the terms it contains, so the BM25 scores of all chunks for a
+whole batch of queries are one sparse matrix product. The analyzer is
+identifier-aware and stemmed:
+
+- It keeps `fused_batched_moe` as a token **and** emits `fused`, `batched`,
+  `moe` (also for camelCase), so "fused batched MoE" matches.
+- Every token is stemmed (Snowball, English), so "loading" matches "loaded".
 - Each chunk is indexed with its own file path tokens prepended
   (`Chunk.indexed_text`), while the returned span stays the raw chunk.
 
-Chunks with a zero score are dropped, so a nonsense query returns nothing.
-BM25 was not implemented: TF-IDF already clears both thresholds.
+**Semantic**: cosine similarity between the query embedding and each chunk
+embedding (a dot product, since vectors are normalised). It catches questions
+worded differently from the text they ask about.
+
+**Fusion**: per query, each side is divided by its maximum score, then
+`alpha * bm25 + (1 - alpha) * semantic`, `alpha = 0.6`. Unlike lexical-only
+search, a query with no known word can still be answered by the semantic side.
+
+**Dedupe**: because chunks overlap, two neighbouring chunks of the same section
+often rank side by side. A candidate is skipped when more than 10% of it is
+already covered by a better-ranked chunk of the same file, and the next
+candidate takes its place.
+
+Chunks with a zero score are dropped, so a nonsense query in lexical mode
+returns nothing.
 
 ## Performance analysis
 
-Measured on the public datasets (100 docs questions, 99 code questions), one
-correct source per question, hit = same file and IoU >= 0.05:
+Measured with the moulinette on the public datasets (100 docs questions, 99
+code questions), default settings (hybrid, `alpha = 0.6`):
 
 | Dataset | Recall@1 | Recall@3 | Recall@5 | Recall@10 | Required @5 |
 |---|---|---|---|---|---|
-| docs | 0.530 | 0.800 | **0.830** | 0.880 | 0.80 |
-| code | 0.465 | 0.687 | **0.747** | 0.848 | 0.50 |
+| docs | 0.670 | 0.880 | **0.930** | 0.940 | 0.80 |
+| code | 0.566 | 0.798 | **0.838** | 0.879 | 0.50 |
 
-Evolution of recall@5 (docs / code): fixed window 0.820 / 0.626, then
-structure-aware chunking 0.850 / 0.586, then identifier-aware tokenisation
-0.830 / 0.747.
+How recall@5 evolved (docs / code), each step measured with the moulinette:
 
-| Budget | Required | Measured (Windows laptop, CPU) |
+| Step | Docs | Code |
 |---|---|---|
-| Indexing (2121 files, 14,950 chunks, 61,524 features) | <= 5 min | ~27 s |
-| Search 99 questions | <= 90 s / 200 questions | ~2 s |
+| TF-IDF, 15% chunk overlap | 0.830 | 0.747 |
+| 30% chunk overlap | 0.850 | 0.768 |
+| + semantic embeddings, hybrid fusion | 0.860 | 0.808 |
+| + stemming | 0.880 | 0.828 |
+| + 128-token embeddings, dedupe | 0.900 | 0.818 |
+| TF-IDF replaced by BM25 (current) | **0.930** | **0.838** |
+
+Each side alone, for comparison: BM25 only 0.870 / 0.818, embeddings only
+0.640 / 0.545. The embeddings are weaker alone but catch questions BM25 misses,
+which is why the fused ranking beats both.
+
+| Budget | Required | Measured (campus Linux machine, 24 cores, CPU only) |
+|---|---|---|
+| Indexing (2121 files, 16,593 chunks) | <= 5 min | 3 min 22 s (about 1,730 s of CPU time) |
+| Search 199 questions (hybrid) | <= 90 s / 200 questions | 11 s, model loading included |
 | Answer generation | not budgeted | ~75-90 s per question on CPU |
 
-`evaluate` is our own reimplementation of the metric; the moulinette binary is
-Linux-only and was not run on this machine.
+Almost all the indexing time is the embedding step: BM25 alone indexes in about
+10 seconds. The embedding step is multi-threaded, so indexing time depends on
+the number of cores: on a machine with far fewer cores it can exceed 5 minutes.
+
+`evaluate` is our own reimplementation of the metric, for quick iteration; the
+numbers above come from the moulinette.
 
 ## Design decisions
 
@@ -197,7 +272,7 @@ Linux-only and was not run on this machine.
 
 - **Windows path separators**: `str(Path)` yields backslashes; solved by
   centralising `as_posix()` formatting.
-- **Code recall**: plain TF-IDF treats `fused_batched_moe` as one opaque token;
+- **Code recall**: plain lexical matching treats `fused_batched_moe` as one opaque token;
   solved by identifier splitting and path tokens (0.586 -> 0.747 at @5).
 - **Structure-aware chunking is not free**: it helped docs but initially hurt
   code recall, which is why the tokenizer work followed it.
@@ -211,10 +286,12 @@ Linux-only and was not run on this machine.
 ## Resources
 
 - [Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks](https://arxiv.org/abs/2005.11401)
-- [scikit-learn: TfidfVectorizer](https://scikit-learn.org/stable/modules/generated/sklearn.feature_extraction.text.TfidfVectorizer.html)
+- [Okapi BM25 (Robertson & Zaragoza, The Probabilistic Relevance Framework)](https://www.staff.city.ac.uk/~sbrp622/papers/foundations_bm25_review.pdf)
+- [Sentence-Transformers: all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2)
+- [Snowball stemmer](https://snowballstem.org/)
 - [Introduction to Information Retrieval (Manning et al.)](https://nlp.stanford.edu/IR-book/)
 - [vLLM documentation](https://docs.vllm.ai/)
 - [Qwen3-0.6B model card](https://huggingface.co/Qwen/Qwen3-0.6B)
 - [Python Fire](https://github.com/google/python-fire), [pydantic](https://docs.pydantic.dev/), [uv](https://docs.astral.sh/uv/)
 
-**AI usage:** Claude was used to plan the project phase by phase, review code against the subject, and explain the new topics.
+**AI usage:** AI was used to plan the project phase by phase, review code against the subject, and explain the new topics.
