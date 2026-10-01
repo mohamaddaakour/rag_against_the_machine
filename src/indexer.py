@@ -36,11 +36,6 @@ BM25_B = 0.75
 def bm25_weights(counts: sp.csr_matrix, k1: float = BM25_K1,
                  b: float = BM25_B) -> sp.csr_matrix:
     """Turn a (chunks x terms) count matrix into BM25 term weights.
-
-    Every stored entry becomes idf(t) * tf * (k1 + 1) / (tf + k1 * norm),
-    with norm = 1 - b + b * chunk_length / average_chunk_length. Summing a
-    chunk's weights over the query terms gives its BM25 score, so ranking
-    is a single sparse multiply with a 0/1 query vector.
     """
     counts = sp.csr_matrix(counts, dtype=np.float64)
     n_chunks = counts.shape[0]

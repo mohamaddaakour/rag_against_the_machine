@@ -180,6 +180,7 @@ class Retriever:
                 results[i] = list(cached)
                 self.cache_hits += 1
             else:
+                # live holds the queries that had to be computed just now.
                 live.append(i)
 
         for start in tqdm(
@@ -205,6 +206,7 @@ class Retriever:
                     continue
                 results[query_index] = self._top_k(scores[:, column], k)
 
+        # To cache the new computed query retrieval, for the next time
         for i in live:
             self.cache_misses += 1
             self._query_cache[(queries[i], k)] = list(results[i])
