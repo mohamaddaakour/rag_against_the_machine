@@ -300,6 +300,10 @@ class Retriever:
             else:
                 live.append(i)
 
+        # Load the model before the progress bar starts, so its loading
+        # output doesn't break the bar, and so it's loaded once, not per batch.
+        model = load_embedding_model(self.embedding_model_name) if live else None
+
         for start in tqdm(
             range(0, len(live), BATCH_SIZE),
             desc="Searching (hybrid)",
@@ -314,7 +318,6 @@ class Retriever:
             lexical_scores = np.asarray((self.matrix @ lexical_vectors.T).todense())
 
             # Semantic side: same cosine scoring as search_semantic_many.
-            model = load_embedding_model(self.embedding_model_name)
             semantic_vectors = encode_texts(model, texts, show_progress=False)
             semantic_scores = self.embeddings @ semantic_vectors.T
 
